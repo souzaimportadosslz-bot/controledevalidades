@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Souza Farma - Controle de Validade (Online)</title>
+    <title>Souza Farma - Controle de Validade (Produção)</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Barcode Scanner Library -->
@@ -213,7 +213,7 @@
         // ***************************************************************
         // ** CONFIGURAÇÃO FIREBASE DO PROJETO 'controle-de-validade-e708a' **
         // ***************************************************************
-        // As configurações foram inseridas diretamente aqui.
+        // Configuração REAL e Estável
         const APP_CONFIG = {
             apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
             authDomain: "controle-de-validade-e708a.firebaseapp.com",
@@ -227,7 +227,7 @@
         // ***************************************************************
         
         // --- Lógica de Ambiente (Simplificada e Robusta) ---
-        // Usa as chaves embutidas se as variáveis de ambiente do Canvas não estiverem disponíveis ou forem inválidas.
+        // Se as variáveis do Canvas falharem, ele usa a configuração embutida (APP_CONFIG)
         const appId = typeof __app_id !== 'undefined' ? __app_id : EXTERNAL_APP_ID;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
