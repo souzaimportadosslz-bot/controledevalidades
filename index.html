@@ -214,13 +214,27 @@
         // ** CONFIGURAÇÃO FIREBASE DO PROJETO 'controle-de-validade-e708a' **
         // ***************************************************************
         const USER_FIREBASE_CONFIG = {
-            apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
-            authDomain: "controle-de-validade-e708a.firebaseapp.com",
-            projectId: "controle-de-validade-e708a",
-            storageBucket: "controle-de-validade-e708a.firebasestorage.app",
-            messagingSenderId: "300173058270",
-            appId: "1:300173058270:web:970549624a4c46af3d624f",
-            measurementId: "G-S0M1J60LRC"
+            // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
+  authDomain: "controle-de-validade-e708a.firebaseapp.com",
+  projectId: "controle-de-validade-e708a",
+  storageBucket: "controle-de-validade-e708a.firebasestorage.app",
+  messagingSenderId: "300173058270",
+  appId: "1:300173058270:web:970549624a4c46af3d624f",
+  measurementId: "G-S0M1J60LRC"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
         };
         const EXTERNAL_APP_ID = "controle-de-validade-e708a"; // O Project ID como App ID
         // ***************************************************************
@@ -717,4 +731,5 @@
         initializeFirebase();
     </script>
 </body>
+
 </html>
