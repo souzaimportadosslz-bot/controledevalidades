@@ -213,51 +213,36 @@
         // ***************************************************************
         // ** CONFIGURAÇÃO FIREBASE DO PROJETO 'controle-de-validade-e708a' **
         // ***************************************************************
-        const USER_FIREBASE_CONFIG = {
-            // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
-  authDomain: "controle-de-validade-e708a.firebaseapp.com",
-  projectId: "controle-de-validade-e708a",
-  storageBucket: "controle-de-validade-e708a.firebasestorage.app",
-  messagingSenderId: "300173058270",
-  appId: "1:300173058270:web:970549624a4c46af3d624f",
-  measurementId: "G-S0M1J60LRC"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+        // As configurações foram inseridas diretamente aqui.
+        const APP_CONFIG = {
+            apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
+            authDomain: "controle-de-validade-e708a.firebaseapp.com",
+            projectId: "controle-de-validade-e708a",
+            storageBucket: "controle-de-validade-e708a.firebasestorage.app",
+            messagingSenderId: "300173058270",
+            appId: "1:300173058270:web:970549624a4c46af3d624f",
+            measurementId: "G-S0M1J60LRC"
         };
-        const EXTERNAL_APP_ID = "controle-de-validade-e708a"; // O Project ID como App ID
+        const EXTERNAL_APP_ID = "controle-de-validade-e708a";
         // ***************************************************************
         
-        // --- Lógica de Ambiente (Estável) ---
-        // Tenta obter variáveis do Canvas (Prévia). Se falhar, usa a configuração USER_FIREBASE_CONFIG.
+        // --- Lógica de Ambiente (Simplificada e Robusta) ---
+        // Usa as chaves embutidas se as variáveis de ambiente do Canvas não estiverem disponíveis ou forem inválidas.
         const appId = typeof __app_id !== 'undefined' ? __app_id : EXTERNAL_APP_ID;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
         let firebaseConfig = null;
         let isFirebaseReady = false; 
 
-        // 1. Tenta obter do Canvas (Prévia)
-        if (typeof __firebase_config !== 'undefined' && JSON.parse(__firebase_config).apiKey) {
-             firebaseConfig = JSON.parse(__firebase_config);
-        } 
-        // 2. Tenta usar a Configuração Externa (Para Netlify/Hospedagem)
-        else if (USER_FIREBASE_CONFIG.apiKey.length > 5 && USER_FIREBASE_CONFIG.projectId.length > 5) {
-             firebaseConfig = USER_FIREBASE_CONFIG;
-        }
-        // 3. Configuração Fictícia (Para evitar que o JS quebre e carregar os dados de teste)
-        else {
-             firebaseConfig = { apiKey: "dummy-key", authDomain: "dummy.firebaseapp.com", projectId: "dummy-project" };
+        // Tenta usar a configuração injetada (Canvas) ou a embutida (Hospedagem)
+        try {
+            if (typeof __firebase_config !== 'undefined' && JSON.parse(__firebase_config).apiKey) {
+                 firebaseConfig = JSON.parse(__firebase_config); // Configuração do Canvas
+            } else {
+                 firebaseConfig = APP_CONFIG; // Configuração embutida para hospedagem
+            }
+        } catch (e) {
+            firebaseConfig = APP_CONFIG; // Falhou na leitura do Canvas, usa a embutida
         }
 
         let app, db, auth, userId = null;
@@ -318,7 +303,7 @@ const analytics = getAnalytics(app);
         }
 
         async function initializeFirebase() {
-            // Se a chave for a fictícia, desativa a persistência e usa dados de teste.
+            // Se a chave for a fictícia (dummy-key), desativa a persistência e usa dados de teste.
             if (firebaseConfig.apiKey === "dummy-key") {
                 isFirebaseReady = false;
                 setupDummyData(); 
@@ -354,7 +339,7 @@ const analytics = getAnalytics(app);
                 
                 let errorMsg = "Erro ao iniciar a conexão segura. ";
                 if (error.code === 'auth/invalid-api-key') {
-                    errorMsg = "ERRO DE CONFIGURAÇÃO: A chave API do Firebase está incorreta ou ausente. Verifique o arquivo index.html.";
+                    errorMsg = "ERRO DE CONFIGURAÇÃO: A chave API do Firebase está incorreta. Verifique o arquivo index.html.";
                 } else {
                     errorMsg += error.message;
                 }
@@ -731,5 +716,4 @@ const analytics = getAnalytics(app);
         initializeFirebase();
     </script>
 </body>
-
 </html>
