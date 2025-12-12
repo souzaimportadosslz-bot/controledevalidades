@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Souza Farma - Controle de Validade (Produção)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .container { max-width: 1200px; margin: auto; padding: 1rem; }
+        .message-box { position: fixed; top: 20px; right: 20px; padding: 1rem; border-radius: 0.5rem; z-index: 1000; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); transition: opacity 0.3s ease-in-out; }
+        input[type="month"] { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+        #expirationDate, #expiration-filter { padding: 6px; line-height: normal; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 50; }
+        .modal-content { background-color: white; padding: 2rem; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1); max-width: 90%; width: 500px; max-height: 90vh; overflow-y: auto; position: relative; }
+        .logo-img { /* Estilos para o logo */
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto 1.5rem; /* Margem inferior */
+            display: block;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        /* Ajuste do Modal do Scanner para ocupar mais espaço na tela */
+        #scanner-modal .modal-content {
+            max-width: 95%; /* Aumenta a largura na tela do celular */
+            width: 600px; /* Mantém a largura máxima em desktop */
+        }
+        
+        /* Otimização para telas pequenas: Esconde Cód. Barras e Laboratório na lista */
+        @media (max-width: 640px) {
+            .sm\:table-cell {
+                display: none !important;
+            }
+        }
+
+        /* Removido todo CSS relacionado ao Efeito Scanner */
+
+        @media print {
+            .no-print { display: none !important; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 10pt; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+    <div id="app" class="container">
+        <header class="py-6 mb-8 bg-white shadow-md rounded-lg no-print">
+            <h1 class="text-3xl font-bold text-center text-red-700">Souza Farma - Controle de Validade (ONLINE)</h1>
+            <p class="text-center text-gray-500 mt-2">Pronto para Hospedagem Externa e Acesso Móvel.</p>
+        </header>
+
+        <div id="message-container" class="fixed top-4 right-4 space-y-2 no-print"></div>
+
+        <div class="lg:flex lg:space-x-8">
+
+            <div class="lg:w-1/4 mb-8 lg:mb-0 no-print">
+                <div class="bg-white p-6 rounded-xl shadow-xl border border-gray-200">
+                    
+                    <img src="https://raw.githubusercontent.com/souzaimportadosslz-bot/controledevalidades/main/souza_farma_logo.png" 
+                            alt="Logomarca Souza Farma" 
+                            class="logo-img"
+                            onerror="this.onerror=null; this.src='https://placehold.co/600x200/DC3545/FFFFFF?text=SOUZA+FARMA+LOGO+FALHOU';">
+                    
+                    <div class="flex flex-col space-y-4 mb-6">
+                        <button onclick="openCadastroModal()"
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01]">
+                            + Cadastrar Novo Produto
+                        </button>
+                        <button onclick="openImportModal()"
+                            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01]">
+                            Importar Produtos em Massa
+                        </button>
+                        <button onclick="openMergeModal()"
+                            class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01]">
+                            Atualizar Lotes (Importar do AppSheet)
+                        </button>
+                    </div>
+
+                    <div class="mb-6 border p-4 rounded-lg bg-blue-50">
+                        <h3 class="text-lg font-semibold mb-2 text-blue-700">Busca Rápida (Scan/Digitação) - LOTE</h3>
+                        <p class="text-sm text-gray-600 mb-2">Escaneie Cód. Barras/Interno para **lançar um novo lote**.</p>
+                        <div class="flex space-x-2">
+                            <input type="text" id="quick-search-input"
+                                class="flex-grow p-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                                placeholder="Escaneie Cód. Barras ou Interno..." onchange="quickLookup(this.value, 'LOTE')">
+                            
+                            <button onclick="openScannerModal('LOTE')" 
+                                class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-lg transition transform hover:scale-105" 
+                                title="Acionar Câmera / Scanner">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+             </div>
+
+            <div class="lg:w-3/4">
+                <div class="bg-white p-4 sm:p-6 rounded-xl shadow-xl border border-gray-200">
+                    <h2 class="text-2xl font-semibold mb-4 text-blue-700">Itens com Baixa Validade</h2>
+
+                    <div class="flex space-x-2 mb-4 no-print">
+                        <button onclick="exportToCsv()"
+                            class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out text-sm">
+                            Exportar para Excel (CSV)
+                        </button>
+                        <button onclick="printFilteredList()"
+                            class="flex-1 bg-gray-700 hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out text-sm">
+                            Imprimir/Exportar para PDF
+                        </button>
+                    </div>
+
+                    <div class="mb-4 no-print">
+                        <label for="search-input" class="block text-sm font-medium text-gray-700 mb-1">
+                            Filtrar Lista por Cód. Barras, Interno ou Descrição:
+                        </label>
+                        <div class="flex space-x-2">
+                            <input type="text" id="search-input"
+                                class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150"
+                                placeholder="Digite o código ou nome para filtrar a lista..." onkeyup="applyFilters()">
+                                
+                            <button onclick="openScannerModal('BUSCA')" 
+                                class="bg-green-500 hover:bg-green-600 text-white p-2 rounded-lg transition transform hover:scale-105" 
+                                title="Acionar Câmera / Scanner para Busca">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4 no-print">
+                        <label for="expiration-filter" class="block text-sm font-medium text-gray-700 mb-1">
+                            Filtrar por Mês de Vencimento (MM/AAAA):
+                        </label>
+                        <input type="month" id="expiration-filter"
+                            class="w-full p-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150"
+                            onchange="applyFilters()">
+                    </div>
+
+
+                    <div class="flex flex-wrap text-xs mb-4 p-2 bg-gray-50 rounded-lg border no-print">
+                        <span class="mr-4"><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span> Vencido/Mês Atual (0)</span>
+                        <span class="mr-4"><span class="inline-block w-3 h-3 rounded-full bg-yellow-600 mr-1"></span> Vence em 1 Mês</span>
+                        <span class="mr-4"><span class="inline-block w-3 h-3 rounded-full bg-orange-500 mr-1"></span> Vence em 2 Meses</span>
+                        <span><span class="inline-block w-3 h-3 rounded-full bg-green-400 mr-1"></span> Vence em 3 Meses</span>
+                    </div>
+
+                    <div class="max-h-[600px] overflow-y-auto mt-4 border border-gray-200 rounded-lg p-1">
+                        <table class="min-w-full divide-y divide-gray-200 table-auto">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr id="list-header-row">
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Cód. Barras</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cód. Interno</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descrição</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Laboratório</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Validade</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qtd</th>
+                                    <th class="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider no-print">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="medication-list" class="bg-white divide-y divide-gray-200 text-xs">
+                                <tr><td colspan="7" class="p-4 text-center text-gray-500">Carregando inventário...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="medication-modal" class="modal-overlay hidden no-print">
+        <div class="modal-content">
+            <button class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl" onclick="closeModal()"> &times; </button>
+            <h2 class="text-2xl font-semibold mb-6 text-blue-700" id="form-title"> Cadastrar Novo Produto </h2>
+            <form id="medication-form">
+                <input type="hidden" id="doc-id">
+                <div class="mb-4"><label for="barcode" class="block text-sm font-medium text-gray-700 mb-1">Código de Barras</label><input type="text" id="barcode" name="barcode" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="Ex: 7891234567890"></div>
+                <div class="mb-4"><label for="internalCode" class="block text-sm font-medium text-gray-700 mb-1">Código Interno</label><input type="text" id="internalCode" name="internalCode" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="Ex: MED001"></div>
+                <div class="mb-4"><label for="description" class="block text-sm font-medium text-gray-700 mb-1">Descrição (Nome do Medicamento)</label><input type="text" id="description" name="description" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="Ex: Dipirona 500mg Comprimidos"></div>
+                <div class="mb-4"><label for="laboratory" class="block text-sm font-medium text-gray-700 mb-1">Laboratório</label><input type="text" id="laboratory" name="laboratory" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="Ex: Sigma Pharma"></div>
+                <div class="flex space-x-4 mb-6">
+                    <div class="flex-1"><label for="quantity" class="block text-sm font-medium text-gray-700 mb-1">Quantidade</label><input type="number" id="quantity" name="quantity" required min="0" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="0"></div>
+                    <div class="flex-1"><label for="expirationDate" class="block text-sm font-medium text-gray-700 mb-1">Validade (MM/AAAA)</label><input type="month" id="expirationDate" name="expirationDate" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150"><p class="text-xs text-gray-500 mt-1">Obrigatório para atualização.</p></div>
+                </div>
+                <button type="submit" id="submit-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"> Cadastrar Medicamento </button>
+                <button type="button" id="cancel-edit-button" class="w-full mt-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out" onclick="closeModal(); resetForm();"> Cancelar </button>
+            </form>
+        </div>
+    </div>
+    
+    <div id="import-modal" class="modal-overlay hidden no-print">
+        <div class="modal-content">
+            <button class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl" onclick="closeImportModal()"> &times; </button>
+            <h2 class="text-2xl font-semibold mb-6 text-purple-700">Importação Inicial de Produtos</h2>
+            <p class="text-sm text-gray-600 mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                **Instruções:** Exporte sua planilha do Excel para o formato **CSV (Ponto e Vírgula)** e selecione o arquivo abaixo. A ordem das colunas DEVE ser: **CÓDIGO DE BARRAS, CÓDIGO INTERNO, DESCRIÇÃO, LABORATÓRIO, QUANTIDADE.**
+            </p>
+            <div class="mb-4"> <label for="bulk-file-input" class="block text-sm font-medium text-gray-700 mb-1"> Arquivo CSV/TSV: </label> <input type="file" id="bulk-file-input" accept=".csv, .tsv" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150 bg-white"> </div>
+            <div class="mb-6">
+                <label for="delimiter-select" class="block text-sm font-medium text-gray-700 mb-1"> Separador (Delimitador): </label>
+                <select id="delimiter-select" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <option value=";">Ponto e Vírgula (;)</option> 
+                    <option value=",">Vírgula (,)</option>
+                    <option value="\t">Tabulação (TSV)</option>
+                </select>
+            </div>
+            <button id="import-button" onclick="handleBulkImport()" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50"> Importar Produtos </button>
+            <button type="button" id="cancel-edit-button" class="w-full mt-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out" onclick="closeImportModal()"> Cancelar </button>
+        </div>
+    </div>
+
+    <div id="merge-modal" class="modal-overlay hidden no-print">
+        <div class="modal-content">
+            <button class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl" onclick="closeMergeModal()"> &times; </button>
+            <h2 class="text-2xl font-semibold mb-6 text-green-700">Atualizar Lotes (Merge AppSheet)</h2>
+            <p class="text-sm text-gray-600 mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                **Instruções:** Exporte a Planilha **'Página 1' do Google Sheets** para o formato **CSV (Vírgula)**. Esta ação irá **ATUALIZAR** os lotes existentes com base no Código de Barras e Vencimento. Os lotes não listados serão mantidos.
+            </p>
+            <div class="mb-4">
+                <label for="merge-file-input" class="block text-sm font-medium text-gray-700 mb-1"> Arquivo CSV/TSV do AppSheet: </label>
+                <input type="file" id="merge-file-input" accept=".csv, .tsv" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150 bg-white">
+            </div>
+            <button id="merge-import-button" onclick="handleMergeImport()" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-[1.01]">
+                Atualizar Lotes no Inventário
+            </button>
+            <button type="button" class="w-full mt-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out" onclick="closeMergeModal()"> Cancelar </button>
+        </div>
+    </div>
+    
+    <div id="scanner-modal" class="modal-overlay hidden no-print">
+        <div class="modal-content" style="max-width: 600px; width: 600px;">
+            <button class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl" onclick="closeScannerModal()"> &times; </button>
+            <h2 class="text-xl font-semibold mb-4 text-blue-700">Scanner de Código de Barras</h2>
+            
+            <div id="reader">
+                </div>
+            <p class="mt-4 text-center text-gray-600">Posicione o código de barras dentro da área de leitura.</p>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, setDoc, onSnapshot, collection, query, where, deleteDoc, getDoc, updateDoc, Timestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ***************************************************************
+        // ** CONFIGURAÇÃO FIREBASE DO PROJETO 'controle-de-validade-e708a' **
+        // ***************************************************************
+        // Configuração REAL e Estável
+        const APP_CONFIG = {
+            apiKey: "AIzaSyDc9-jix-tXCV8JHzivDR8pY1iCNNJeDPg",
+            authDomain: "controle-de-validade-e708a.firebaseapp.com",
+            projectId: "controle-de-validade-e708a",
+            storageBucket: "controle-de-validade-e708a.firebasestorage.app",
+            messagingSenderId: "300173058270",
+            appId: "1:300173058270:web:970549624a4c46af3d624f"
+        };
+        const EXTERNAL_APP_ID = "controle-de-validade-e708a";
+        // ***************************************************************
+        
+        // --- Lógica de Ambiente (Simplificada e Robusta) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : EXTERNAL_APP_ID;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        let firebaseConfig = null;
+        let isFirebaseReady = false; 
+
+        // Tenta usar a configuração injetada (Canvas) ou a embutida (Hospedagem)
+        try {
+            if (typeof __firebase_config !== 'undefined' && JSON.parse(__firebase_config).apiKey) {
+                 firebaseConfig = JSON.parse(__firebase_config); // Configuração do Canvas
+            } else {
+                 firebaseConfig = APP_CONFIG; // Configuração embutida para hospedagem
+            }
+        } catch (e) {
+            firebaseConfig = APP_CONFIG; // Falhou na leitura do Canvas, usa a embutida
+        }
+
+        let app, db, auth, userId = null;
+        let allMedications = []; 
+        let currentFilteredList = []; 
+        const COLLECTION_NAME = 'medicamentos';
+        let html5QrCode = null;
+
+        // --- DADOS FICTÍCIOS DE TESTE ---
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const nextMonth = String((today.getMonth() + 2) % 12 || 12).padStart(2, '0');
+        const nextYear = today.getMonth() === 11 ? yyyy + 1 : yyyy;
+        
+        const dummyData = [
+            { id: 'dummy1', barcode: '123456789', internalCode: 'PAIN01', description: 'Dipirona 500mg (Vermelho)', laboratory: 'ABC Pharma', quantity: 5, expirationDate: `${yyyy}-${mm}`, searchTerms: 'dipirona pain01 abc' },
+            { id: 'dummy2', barcode: '987654321', internalCode: 'VITC', description: 'Vitamina C 1g (Amarelo Forte)', laboratory: 'Beta Labs', quantity: 20, expirationDate: `${nextYear}-${nextMonth}`, searchTerms: 'vitamina vitc beta' },
+            { id: 'dummy3', barcode: '111222333', internalCode: 'ANTIB', description: 'Amoxicilina 500mg (Verde)', laboratory: 'Gamma Genéricos', quantity: 50, expirationDate: '2026-06', searchTerms: 'amoxicilina antib gamma' },
+            { id: 'dummy4', barcode: '444555666', internalCode: 'PEND', description: 'Soro Fisiológico (PENDENTE)', laboratory: 'Delta Suprimentos', quantity: 100, expirationDate: null, searchTerms: 'soro pend delta' },
+        ];
+        // ---------------------------------------------------------------------
+
+
+        // Elementos do DOM
+        const modal = document.getElementById('medication-modal');
+        const form = document.getElementById('medication-form');
+        const formTitle = document.getElementById('form-title');
+        const submitButton = document.getElementById('submit-button');
+        const cancelButton = document.getElementById('cancel-edit-button');
+        const importModal = document.getElementById('import-modal'); 
+        const bulkFileInput = document.getElementById('bulk-file-input'); 
+        const delimiterSelect = document.getElementById('delimiter-select');
+        const mergeModal = document.getElementById('merge-modal');
+        const scannerModal = document.getElementById('scanner-modal');
+        const listContainer = document.getElementById('medication-list');
+        const searchInput = document.getElementById('search-input');
+        const expirationFilterInput = document.getElementById('expiration-filter');
+        const quickSearchInput = document.getElementById('quick-search-input');
+        const loadingText = document.getElementById('loading-text');
+        const emptyText = document.getElementById('empty-text');
+
+        
+        // --- LÓGICA DE PERSISTÊNCIA (FIREBASE) ---
+
+        /**
+         * Retorna a referência para a coleção de medicamentos.
+         * O caminho é público/compartilhado para que todos os usuários (Canvas e Hospedagem Externa)
+         * acessem o mesmo conjunto de dados.
+         */
+        function getCollectionRef() {
+            if (!db || !userId) throw new Error("Firebase não inicializado ou usuário não autenticado.");
+            // Caminho: Público/Compartilhado
+            return collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME); 
+        }
+        
+        function sortAndRender() {
+            allMedications.sort((a, b) => {
+                if (!a.expirationDate && b.expirationDate) return -1;
+                if (a.expirationDate && !b.expirationDate) return 1;
+                if (!a.expirationDate && !b.expirationDate) return 0;
+                return a.expirationDate.localeCompare(b.expirationDate);
+            });
+            applyFilters();
+        }
+
+        async function initializeFirebase() {
+            // Se a chave for a fictícia (dummy-key), desativa a persistência e usa dados de teste.
+            if (firebaseConfig.apiKey === "dummy-key") {
+                isFirebaseReady = false;
+                setupDummyData(); 
+                showMessage("ERRO DE CONFIGURAÇÃO: Persistência de dados DESABILITADA. Carregando DADOS FICTÍCIOS.", "error");
+                return;
+            }
+            
+            try {
+                // INICIALIZAÇÃO CORRIGIDA PARA GARANTIR QUE A CONFIG ESTEJA PRESENTE
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                isFirebaseReady = true;
+                
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        setupRealtimeListener();
+                    } else {
+                        console.error("Autenticação falhou.");
+                        showMessage("Sessão de usuário perdida. Recarregue a página.", "error");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Erro ao inicializar ou autenticar Firebase:", error);
+                
+                let errorMsg = "Erro ao iniciar a conexão segura. ";
+                if (error.code === 'auth/invalid-api-key' || error.code === 'auth/configuration-not-found') {
+                    errorMsg = "ERRO DE CONFIGURAÇÃO: A chave API do Firebase está incorreta. Verifique o arquivo index.html.";
+                } else {
+                    errorMsg += error.message;
+                }
+
+                showMessage(errorMsg, "error");
+                isFirebaseReady = false;
+                setupDummyData(); 
+            }
+        }
+        
+        function setupDummyData() {
+            allMedications = dummyData;
+            sortAndRender();
+        }
+
+        function setupRealtimeListener() {
+            if (!isFirebaseReady) return;
+
+            try {
+                const medsRef = getCollectionRef();
+                const q = query(medsRef); 
+
+                onSnapshot(q, (snapshot) => {
+                    const medications = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        medications.push({ id: doc.id, ...data });
+                    });
+
+                    allMedications = medications;
+                    sortAndRender(); 
+                }, (error) => {
+                    console.error("Erro ao ouvir coleção:", error);
+                    showMessage("Erro ao carregar dados em tempo real: " + error.message, "error");
+                });
+            } catch (error) {
+                console.error("Erro ao configurar listener:", error);
+                showMessage("Erro na configuração de dados: " + error.message, "error");
+            }
+        }
+        
+        // --- LÓGICA DO CRUD (Usando Firebase) ---
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!isFirebaseReady) {
+                showMessage("Aviso: Persistência de dados não está ativa. Não é possível salvar.", "error");
+                return;
+            }
+            
+            const docId = document.getElementById('doc-id').value;
+            const barcode = document.getElementById('barcode').value.trim();
+            const internalCode = document.getElementById('internalCode').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const laboratory = document.getElementById('laboratory').value.trim();
+            const quantity = parseInt(document.getElementById('quantity').value, 10);
+            const expirationDate = document.getElementById('expirationDate').value; 
+
+            if (isNaN(quantity) || quantity < 0) {
+                showMessage("Quantidade deve ser um número válido e positivo.", "error");
+                return;
+            }
+
+            const data = { barcode, internalCode, description, laboratory, quantity, expirationDate: expirationDate || null, searchTerms: `${barcode} ${internalCode} ${description} ${laboratory}`.toLowerCase() };
+
+            try {
+                if (docId) {
+                    await updateDoc(doc(getCollectionRef(), docId), data);
+                    showMessage("Medicamento atualizado com sucesso!", "success");
+                } else {
+                    await addDoc(getCollectionRef(), data);
+                    showMessage("Medicamento cadastrado com sucesso!", "success");
+                }
+                closeModal();
+            } catch (error) {
+                console.error("Erro ao salvar medicamento:", error);
+                showMessage("Erro ao salvar medicamento: " + error.message, "error");
+            }
+        });
+
+        window.deleteMedication = async function(id) {
+            if (!isFirebaseReady) {
+                showMessage("Aviso: Persistência de dados não está ativa. Não é possível excluir.", "error");
+                return;
+            }
+
+            // Uso de modal de confirmação customizado em vez de alert/confirm()
+            showConfirmationModal("Tem certeza que deseja DELETAR este lote? Esta ação é irreversível.", async () => {
+                try {
+                    await deleteDoc(doc(getCollectionRef(), id));
+                    showMessage("Lote excluído com sucesso!", "success");
+                } catch (error) {
+                    console.error("Erro ao deletar lote:", error);
+                    showMessage("Erro ao deletar lote: " + error.message, "error");
+                }
+            });
+        }
+        
+        window.handleBulkImport = async function() {
+            if (!isFirebaseReady) {
+                showMessage("Aviso: Persistência de dados não está ativa. Não é possível importar.", "error");
+                return;
+            }
+            
+            const fileInput = bulkFileInput;
+            const file = fileInput.files[0];
+            if (!file) { showMessage("Selecione um arquivo CSV/TSV para importar.", "error"); return; }
+
+            const importButton = document.getElementById('import-button');
+            importButton.disabled = true;
+            importButton.textContent = 'Importando... Aguarde.';
+
+            const delimiter = delimiterSelect.value === '\t' ? '\t' : delimiterSelect.value;
+            
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const rawData = event.target.result;
+                const lines = rawData.split('\n').filter(line => line.trim() !== '');
+
+                let successfulImports = 0;
+                let failedImports = 0;
+                const importPromises = [];
+
+                lines.forEach((line, index) => {
+                    const cleanLine = line.replace(/\r/g, ''); 
+                    const values = cleanLine.split(delimiter).map(v => v.trim());
+                    
+                    if (values.length >= 5) {
+                        const [barcode, internalCode, description, laboratory, quantityStr] = values;
+                        const quantity = parseInt(quantityStr, 10);
+
+                        if (barcode && internalCode && description && !isNaN(quantity) && quantity >= 0) {
+                            const data = { barcode, internalCode, description, laboratory: laboratory || 'N/A', quantity, expirationDate: null, searchTerms: `${barcode} ${internalCode} ${description} ${laboratory}`.toLowerCase() };
+                            importPromises.push(addDoc(getCollectionRef(), data).then(() => { successfulImports++; }).catch(() => { failedImports++; }));
+                        } else { failedImports++; }
+                    } else { failedImports++; }
+                });
+
+                await Promise.all(importPromises);
+                showMessage(`Importação concluída. Sucessos: ${successfulImports}. Falhas: ${failedImports}.`, "success");
+                closeImportModal();
+                importButton.disabled = false;
+                importButton.textContent = 'Importar Produtos';
+            };
+            
+            reader.onerror = () => { showMessage("Erro ao ler o arquivo.", "error"); importButton.disabled = false; importButton.textContent = 'Importar Produtos'; };
+            reader.readAsText(file);
+        }
+
+        // --- NOVO CÓDIGO PARA MERGE/ATUALIZAÇÃO SELETIVA ---
+        
+        /**
+         * Converte a data salva pelo AppSheet (Ex: 12/31/2025) para o formato YYYY-MM
+         * que é usado internamente no Painel Web (Para comparação).
+         * @param {string} appsheetDateStr - Data lida do CSV do AppSheet.
+         */
+        function convertDateToYYMM(appsheetDateStr) {
+            if (!appsheetDateStr || appsheetDateStr.toUpperCase().includes('PENDENTE') || appsheetDateStr.toUpperCase().includes('N/A')) return null;
+
+            // 1. Tenta formato YYYY-MM (Ideal para inputs type="month")
+            const isoRegex = /(\d{4})-(\d{2})/;
+            if (isoRegex.test(appsheetDateStr)) {
+                return appsheetDateStr;
+            }
+
+            // 2. Tenta formato MM/DD/YYYY ou DD/MM/YYYY (Formato comum do Sheets/AppSheet)
+            const parts = appsheetDateStr.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+            if (parts) {
+                // Assumindo que a validade no Sheets é MM/YYYY ou DD/MM/YYYY.
+                // Para Vencimento, o mês é a informação chave.
+                const year = parts[3];
+                const month = parts[1]; 
+                
+                return `${year}-${month.padStart(2, '0')}`;
+            }
+            
+            return null;
+        }
+
+        window.openMergeModal = function() {
+            document.getElementById('merge-modal').classList.remove('hidden');
+        };
+
+        window.closeMergeModal = function() {
+            document.getElementById('merge-modal').classList.add('hidden');
+            document.getElementById('merge-file-input').value = ''; 
+        };
+
+        window.handleMergeImport = function() {
+            if (!isFirebaseReady) {
+                 showMessage("Aviso: Persistência de dados (Firebase) não está ativa. Não é possível fazer o MERGE.", "error");
+                 return;
+            }
+
+            const fileInput = document.getElementById('merge-file-input');
+            const file = fileInput.files[0];
+            if (!file) { showMessage("Selecione um arquivo CSV/TSV para importar.", "error"); return; }
+
+            const importButton = document.getElementById('merge-import-button');
+            importButton.disabled = true;
+            importButton.textContent = 'Atualizando Lotes... Aguarde.';
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const rawData = event.target.result;
+                const lines = rawData.split('\n').filter(line => line.trim() !== '');
+
+                if (lines.length <= 1) { 
+                     showMessage("Arquivo vazio ou apenas cabeçalho.", "error"); 
+                     importButton.disabled = false;
+                     importButton.textContent = 'Atualizar Lotes';
+                     return;
+                }
+
+                // Assumindo CSV separado por VÍRGULA (padrão do Sheets)
+                const delimiter = ','; 
+                const headers = lines[0].split(delimiter).map(h => h.trim().replace(/"/g, ''));
+                let updatedCount = 0;
+                let createdCount = 0;
+                let failedCount = 0;
+                
+                // Mapeamento esperado (Confirme os nomes das colunas da sua Planilha AppSheet)
+                // Usamos o headerMap para mapear CÓD. BARRAS -> barcode, etc.
+                const headerMap = {
+                    'CÓD. BARRAS': 'barcode',
+                    'CÓD. INTERNO': 'internalCode',
+                    'DESCRIÇÃO': 'description',
+                    'LABORATÓRIO': 'laboratory',
+                    'QTD': 'quantity',
+                    'VALIDADE': 'expirationDate', // Coluna de validade (Nome final no Sheets)
+                    '_ROWNUMBER': 'id' // ID para identificação única
+                };
+                
+                const importPromises = [];
+
+                // 1. CONVERTER NOVOS DADOS PARA OBJETOS E FAZER O MERGE
+                for (let i = 1; i < lines.length; i++) {
+                    const cleanLine = lines[i].replace(/\r/g, ''); 
+                    const values = cleanLine.split(delimiter).map(v => v.trim().replace(/"/g, ''));
+
+                    if (values.length !== headers.length) {
+                        failedCount++;
+                        continue;
+                    }
+
+                    const newItem = {};
+                    
+                    for (let j = 0; j < headers.length; j++) {
+                        const headerName = headers[j].toUpperCase().trim();
+                        const internalName = headerMap[headerName];
+                        
+                        if (internalName) {
+                             let value = values[j].trim();
+                             
+                             if (internalName === 'quantity') { newItem[internalName] = parseInt(value, 10) || 0; }
+                             else if (internalName === 'expirationDate') { newItem[internalName] = convertDateToYYMM(value); }
+                             else if (internalName === 'id') { newItem[internalName] = value; }
+                             else { newItem[internalName] = value; }
+                        }
+                    }
+
+                    if (!newItem.barcode || !newItem.expirationDate) {
+                        failedCount++;
+                        continue;
+                    }
+
+                    // --- MERGE ---
+                    const expirationMMYY = newItem.expirationDate;
+
+                    // Tenta encontrar o item existente pela combinação de CÓDIGO DE BARRAS + VENCIMENTO
+                    const existingIndex = allMedications.findIndex(existingItem => 
+                        existingItem.barcode === newItem.barcode && 
+                        existingItem.expirationDate === expirationMMYY
+                    );
+                    
+                    // Dados para atualização (inclui os termos de busca)
+                    const dataToUpdate = { 
+                        ...newItem,
+                        searchTerms: `${newItem.barcode} ${newItem.internalCode || ''} ${newItem.description || ''} ${newItem.laboratory || ''}`.toLowerCase() 
+                    };
+
+                    if (existingIndex !== -1) {
+                        // Se encontrar: Atualiza (Edita)
+                        const originalId = allMedications[existingIndex].id;
+                        
+                        // Atualiza o array local (necessário para a renderização)
+                        allMedications[existingIndex] = { ...dataToUpdate, id: originalId };
+                        
+                        // Envia a atualização para o Firebase
+                        importPromises.push(updateDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, originalId), dataToUpdate).then(() => { updatedCount++; }).catch(() => { failedCount++; }));
+                        
+                    } else {
+                        // Se não encontrar: Cria (Insere)
+                        // Adiciona o novo lote ao Firebase
+                        importPromises.push(addDoc(collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME), dataToUpdate).then((docRef) => { 
+                            dataToUpdate.id = docRef.id;
+                            allMedications.push(dataToUpdate); // Adiciona ao array local
+                            createdCount++; 
+                        }).catch(() => { failedCount++; }));
+                    }
+                }
+
+                // Esperar que todas as operações assíncronas do Firebase terminem
+                await Promise.allSettled(importPromises); 
+
+                // 3. RENDERIZAR E FINALIZAR
+                sortAndRender();
+
+                showMessage(`Atualização concluída. Lotes: ${updatedCount} editados, ${createdCount} novos. Falhas: ${failedCount}.`, "success");
+                closeMergeModal(); 
+                
+                importButton.disabled = false;
+                importButton.textContent = 'Atualizar Lotes';
+            };
+            
+            reader.onerror = () => { showMessage("Erro ao ler o arquivo.", "error"); importButton.disabled = false; importButton.textContent = 'Atualizar Lotes'; };
+            reader.readAsText(file);
+        };
+
+
+        // --- FUNÇÕES DE LAYOUT E FILTRO ---
+
+        // Função de abertura de modal de Cadastro (SIMPLIFICADA)
+        window.openCadastroModal = function() {
+            const modalElement = document.getElementById('medication-modal');
+            const searchInput = document.getElementById('search-input');
+            if (modalElement) {
+                resetForm();
+                modalElement.classList.remove('hidden');
+                if (searchInput) searchInput.value = ''; // Limpa filtro ao abrir modal
+                applyFilters();
+            }
+        };
+
+        // Função de abertura de modal de Importação (SIMPLIFICADA)
+        window.openImportModal = function() {
+            const importModalElement = document.getElementById('import-modal');
+            const searchInput = document.getElementById('search-input');
+            if (importModalElement) {
+                closeImportModal(); // Garante limpeza
+                importModalElement.classList.remove('hidden');
+                if (searchInput) searchInput.value = ''; // Limpa filtro ao abrir modal
+                applyFilters();
+            }
+        };
+
+
+        window.closeModal = function() {
+            const modalElement = document.getElementById('medication-modal');
+            if (modalElement) {
+                modalElement.classList.add('hidden');
+            }
+            resetForm(); 
+        }
+        
+        window.closeImportModal = function() {
+            const importModalElement = document.getElementById('import-modal');
+            const bulkFileInput = document.getElementById('bulk-file-input');
+            if (importModalElement) {
+                importModalElement.classList.add('hidden');
+            }
+            if (bulkFileInput) {
+                bulkFileInput.value = ''; // Limpa o input de arquivo
+            }
+        }
+
+        window.openScannerModal = function(mode) {
+            if (!isFirebaseReady) {
+                showMessage("A câmera está disponível, mas **a persistência de dados está desativada**. Use o modo Prévia/Hospedado para salvar.", "error");
+            }
+            scannerModal.classList.remove('hidden');
+            window.scannerMode = mode; 
+
+            if (typeof Html5Qrcode !== 'undefined') {
+                html5QrCode = new Html5Qrcode("reader"); 
+                
+                // DEFINIÇÃO DO FOCO (QRBOX) - FOCO MENOR (150x80) para forçar o foco à distância ideal
+                const QRBOX_WIDTH = 150;
+                const QRBOX_HEIGHT = 80;
+                
+                const config = { 
+                    fps: 30, 
+                    qrbox: { width: QRBOX_WIDTH, height: QRBOX_HEIGHT }, // <-- FOCO EXTREMAMENTE MENOR
+                    aspectRatio: 1.0, 
+                    // Foco apenas nos formatos mais robustos: Code 128 (geral) e EAN_13 (varejo)
+                    supportedScanTypes: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.EAN_13], 
+                    rememberLastUsedCamera: true 
+                };
+                
+                // CONFIGURAÇÃO DA CÂMERA (videoConstraints) - BÁSICA PARA EVITAR ERROS NO iOS
+                const videoConstraints = {
+                    facingMode: "environment" 
+                };
+
+                html5QrCode.start(videoConstraints, config, onScanSuccess, onScanError)
+                    .then(() => {
+                        // Nenhuma injeção de laser
+                    })
+                    .catch(err => { 
+                        showMessage("Erro ao iniciar a câmera: " + (err.message || 'Verifique as permissões de câmera.'), "error"); 
+                        closeScannerModal(); 
+                    });
+            } else { showMessage("Biblioteca de scanner não carregada.", "error"); }
+        }
+
+        window.closeScannerModal = function() {
+            scannerModal.classList.add('hidden');
+            if (html5QrCode && html5QrCode.isScanning) { 
+                html5QrCode.stop().catch(err => { console.error("Erro ao parar a câmera:", err); }); 
+            }
+            html5QrCode = null; 
+        }
+        
+        function onScanSuccess(decodedText) { 
+            closeScannerModal();
+            
+            if (window.scannerMode === 'BUSCA') {
+                const searchInput = document.getElementById('search-input');
+                if (searchInput) {
+                    searchInput.value = decodedText;
+                    applyFilters(); 
+                    showMessage(`Busca ativada pelo código: ${decodedText}`, "success");
+                }
+            } else { 
+                const quickSearchInput = document.getElementById('quick-search-input');
+                if (quickSearchInput) {
+                    quickSearchInput.value = decodedText;
+                    quickLookup(decodedText); 
+                    showMessage(`Código de barras lido: ${decodedText}`, "success");
+                }
+            }
+        }
+        function onScanError(errorMessage) { /* Silencia erros de scan para não quebrar a varredura contínua */ }
+
+        window.quickLookup = function(query) {
+            const searchTerm = query.toLowerCase().trim();
+            if (!searchTerm) { resetForm(); return; }
+
+            const foundItem = allMedications.find(med => med.barcode.toLowerCase() === searchTerm || med.internalCode.toLowerCase() === searchTerm || med.description.toLowerCase().includes(searchTerm));
+
+            if (foundItem) { 
+                openCadastroModal(); 
+                
+                document.getElementById('doc-id').value = ''; 
+                
+                document.getElementById('barcode').value = foundItem.barcode;
+                document.getElementById('internalCode').value = foundItem.internalCode;
+                document.getElementById('description').value = foundItem.description;
+                document.getElementById('laboratory').value = foundItem.laboratory;
+
+                document.getElementById('barcode').disabled = true;
+                document.getElementById('internalCode').disabled = true;
+                document.getElementById('description').disabled = true;
+                document.getElementById('laboratory').disabled = true;
+
+                formTitle.textContent = `Lançamento de NOVO LOTE: ${foundItem.description}`;
+                submitButton.textContent = 'Adicionar Novo Lote';
+                submitButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                submitButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                
+                showMessage(`Produto encontrado. Insira a Validade e Qtd do novo lote.`, "info");
+            } 
+            else { 
+                showMessage(`Produto com código/nome "${query}" não encontrado.`, "error"); 
+                resetForm();
+            }
+        };
+
+        window.loadForEdit = function(id) {
+            const item = allMedications.find(m => m.id === id);
+            if (item) {
+                openCadastroModal(); 
+                
+                document.getElementById('doc-id').value = item.id; 
+                
+                document.getElementById('barcode').value = item.barcode;
+                document.getElementById('internalCode').value = item.internalCode;
+                document.getElementById('description').value = item.description;
+                document.getElementById('laboratory').value = item.laboratory;
+                document.getElementById('quantity').value = item.quantity;
+                document.getElementById('expirationDate').value = item.expirationDate || ''; 
+
+                formTitle.textContent = `Editar Lote: ${item.description} (${item.expirationDate || 'PENDENTE'})`;
+                submitButton.textContent = 'Salvar Alterações do Lote';
+                submitButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                submitButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                cancelButton.classList.remove('hidden');
+
+                document.getElementById('barcode').disabled = true;
+                document.getElementById('internalCode').disabled = true;
+                document.getElementById('description').disabled = true;
+                document.getElementById('laboratory').disabled = true;
+            }
+        }
+        
+        window.resetForm = function() {
+            form.reset();
+            document.getElementById('doc-id').value = '';
+            formTitle.textContent = 'Cadastrar Novo Produto';
+            submitButton.textContent = 'Cadastrar Medicamento';
+            submitButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+            submitButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            cancelButton.classList.add('hidden');
+            if (quickSearchInput) quickSearchInput.value = '';
+            document.getElementById('expirationDate').value = ''; 
+            
+            document.getElementById('barcode').disabled = false;
+            document.getElementById('internalCode').disabled = false;
+            document.getElementById('description').disabled = false;
+            document.getElementById('laboratory').disabled = false;
+        }
+
+        function monthDiff(date1Str, date2Str) {
+            const parts1 = date1Str.split('-').map(Number);
+            const parts2 = date2Str.split('-').map(Number);
+            const year1 = parts1[0];
+            const month1 = parts1[1];
+            const year2 = parts2[0];
+            const month2 = parts2[1];
+            return (year1 - year2) * 12 + (month1 - month2);
+        }
+
+        // Função de Mensagem (Toast)
+        function showMessage(text, type = 'success') {
+            const container = document.getElementById('message-container');
+            const element = document.createElement('div');
+            
+            let bgColor, icon;
+            if (type === 'success') { bgColor = 'bg-green-100 border-green-400 text-green-700'; icon = '✅'; } 
+            else if (type === 'error') { bgColor = 'bg-red-100 border-red-400 text-red-700'; icon = '❌'; } 
+            else { bgColor = 'bg-blue-100 border-blue-400 text-blue-700'; icon = 'ℹ️'; }
+
+            element.className = `message-box ${bgColor} border-l-4`;
+            element.innerHTML = `<div class="flex items-center"><span class="mr-2">${icon}</span><span>${text}</span><button class="ml-4 text-gray-500 hover:text-gray-700" onclick="this.parentNode.parentNode.remove()">&times;</button></div>`;
+            container.appendChild(element);
+            setTimeout(() => { element.style.opacity = '0'; setTimeout(() => element.remove(), 300); }, 5000);
+        }
+        window.showMessage = showMessage; 
+
+        // Função de Confirmação (Modal customizado para substituir confirm())
+        function showConfirmationModal(message, onConfirm) {
+            const existingModal = document.getElementById('confirmation-modal');
+            if (existingModal) existingModal.remove();
+
+            const modalHtml = `
+                <div id="confirmation-modal" class="modal-overlay">
+                    <div class="modal-content" style="max-width: 350px;">
+                        <p class="text-lg font-semibold mb-6">${message}</p>
+                        <div class="flex justify-end space-x-4">
+                            <button id="confirm-btn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition">Confirmar</button>
+                            <button id="cancel-btn" class="bg-gray-400 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg transition">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            const modalElement = document.getElementById('confirmation-modal');
+            
+            document.getElementById('confirm-btn').onclick = () => {
+                onConfirm();
+                modalElement.remove();
+            };
+            
+            document.getElementById('cancel-btn').onclick = () => {
+                modalElement.remove();
+            };
+        }
+
+
+        function renderMedications(meds) {
+            listContainer.innerHTML = ''; 
+            currentFilteredList = meds;
+            if (loadingText) loadingText.classList.add('hidden');
+            if (meds.length === 0) { 
+                listContainer.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-500">Nenhum medicamento encontrado.</td></tr>`; 
+                return; 
+            }
+
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth() + 1;
+            const currentMonthYear = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+
+            meds.forEach(med => {
+                const displayDate = med.expirationDate ? `${med.expirationDate.split('-')[1]}/${med.expirationDate.split('-')[0]}` : 'PENDENTE';
+                let expirationClass = 'bg-white';
+                let expirationTextColor = 'text-gray-700';
+
+                if (med.expirationDate) {
+                    const monthsUntilExpiration = monthDiff(med.expirationDate, currentMonthYear);
+
+                    if (monthsUntilExpiration <= 0) { expirationClass = 'bg-red-100'; expirationTextColor = 'text-red-800 font-semibold'; } 
+                    else if (monthsUntilExpiration === 1) { expirationClass = 'bg-yellow-200'; expirationTextColor = 'text-yellow-900 font-bold'; } 
+                    else if (monthsUntilExpiration === 2) { expirationClass = 'bg-amber-200'; expirationTextColor = 'text-amber-900 font-semibold'; } 
+                    else if (monthsUntilExpiration === 3) { expirationClass = 'bg-green-100'; expirationTextColor = 'text-green-800 font-semibold'; } 
+                } else { expirationClass = 'bg-gray-200'; expirationTextColor = 'text-gray-500'; }
+
+                let quantityColor = med.quantity <= 10 ? 'text-red-600 font-semibold' : 'text-gray-900';
+                
+                const row = document.createElement('tr');
+                // Reduzido p-3 py-2 para p-2 py-1 na lista para economizar espaço vertical no mobile
+                row.className = `hover:bg-gray-50 ${expirationClass} border-l-4 border-r-4`;
+                row.innerHTML = `
+                    <td class="px-2 py-1 whitespace-nowrap text-xs ${expirationTextColor} hidden sm:table-cell">${med.barcode}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-xs ${expirationTextColor}">${med.internalCode}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-xs font-medium ${expirationTextColor}">
+                        ${med.description}<br>
+                        <span class="text-xs text-gray-500 block sm:hidden">Cód. Barras: ${med.barcode}</span>
+                        <span class="text-xs text-blue-500 block sm:hidden">Laboratório: ${med.laboratory}</span>
+                    </td>
+                    <td class="px-2 py-1 whitespace-nowrap text-xs ${expirationTextColor} hidden sm:table-cell">${med.laboratory}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-xs ${expirationTextColor}">${displayDate}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-xs ${quantityColor}">${med.quantity}</td>
+                    <td class="px-2 py-1 whitespace-nowrap text-right text-xs font-medium no-print">
+                        <button onclick="loadForEdit('${med.id}')" class="text-blue-600 hover:text-blue-900 mr-1 p-1 rounded-md hover:bg-blue-200 transition">Edit</button>
+                        <button onclick="deleteMedication('${med.id}')" class="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-200 transition">Exc</button>
+                    </td>
+                `;
+                listContainer.appendChild(row);
+            });
+        }
+
+        window.applyFilters = function() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const expirationFilter = expirationFilterInput.value;
+
+            let filtered = allMedications;
+
+            if (searchTerm !== '') { filtered = filtered.filter(med => med.searchTerms && med.searchTerms.includes(searchTerm)); }
+
+            if (expirationFilter !== '') { filtered = filtered.filter(med => med.expirationDate && med.expirationDate === expirationFilter); }
+
+            renderMedications(filtered);
+        }
+        
+        window.exportToCsv = function() {
+            if (currentFilteredList.length === 0) { showMessage("Nenhum item na lista para exportar.", "error"); return; }
+            const headers = ["Cód. Barras", "Cód. Interno", "Descrição", "Laboratório", "Validade (MM/AAAA)", "Quantidade"];
+            const delimiter = ";";
+            const csvRows = [];
+            csvRows.push(headers.join(delimiter));
+
+            currentFilteredList.forEach(med => {
+                const displayDate = med.expirationDate ? `${med.expirationDate.split('-')[1]}/${med.expirationDate.split('-')[0]}` : 'PENDENTE';
+                const row = [ med.barcode, med.internalCode, med.description.replace(/;/g, ","), med.laboratory, displayDate, med.quantity ].join(delimiter);
+                csvRows.push(row);
+            });
+
+            const csvString = csvRows.join('\n');
+            const blob = new Blob(["\uFEFF", csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `relatorio_validade_souzafarma_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showMessage("Relatório CSV exportado com sucesso!", "success");
+        }
+
+        window.printFilteredList = function() {
+            if (currentFilteredList.length === 0) { showMessage("Nenhum item para imprimir. Filtre a lista primeiro.", "error"); return; }
+            const today = new Date().toLocaleDateString('pt-BR');
+            const listHTML = currentFilteredList.map(med => {
+                const displayDate = med.expirationDate ? `${med.expirationDate.split('-')[1]}/${med.expirationDate.split('-')[0]}` : 'PENDENTE';
+                return `<tr><td>${med.barcode}</td><td>${med.internalCode}</td><td>${med.description} (${med.laboratory})</td><td>${displayDate}</td><td>${med.quantity}</td></tr>`;
+            }).join('');
+
+            const printWindow = window.open('', '', 'height=600,width=800');
+            printWindow.document.write('<html><head><title>Souza Farma - Relatório de Validade</title>');
+            printWindow.document.write('<style>body { font-family: sans-serif; padding: 20px; }.print-header { text-align: center; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 10pt; }</style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write('<div class="print-header">');
+            printWindow.document.write(`<h1>Souza Farma - Relatório de Validade</h1>`);
+            printWindow.document.write(`<p>Data do Relatório: ${today}</p>`);
+            
+            const filterMonth = expirationFilterInput.value;
+            if (filterMonth) { const [year, month] = filterMonth.split('-'); printWindow.document.write(`<p>Filtro Aplicado: Vencimento em ${month}/${year}</p>`); } 
+            else if (searchInput.value) { printWindow.document.write(`<p>Filtro Aplicado: Busca por "${searchInput.value}"</p>`); }
+            printWindow.document.write('</div>');
+
+            printWindow.document.write('<table>');
+            printWindow.document.write('<thead><tr><th>Cód. Barras</th><th>Cód. Interno</th><th>Descrição (Laboratório)</th><th>Validade</th><th>Qtd</th></tr></thead>');
+            printWindow.document.write('<tbody>');
+            printWindow.document.write(listHTML);
+            printWindow.document.write('</tbody></table>');
+            printWindow.document.close();
+            
+            printWindow.onload = function() { printWindow.print(); printWindow.close(); };
+        }
+
+        window.filterMedications = window.applyFilters;
+        
+        // Inicia o aplicativo
+        initializeFirebase();
+    </script>
+</body>
+</html>
