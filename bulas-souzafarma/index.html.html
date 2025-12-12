@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Souza Farma - Bulas Digitais</title>
+    <!-- Carrega o Tailwind CSS para estilização rápida -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração da fonte Inter -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        /* Estilos personalizados para o botão de fechar modal */
+        .close-button {
+            transition: all 0.2s;
+        }
+        .close-button:hover {
+            transform: rotate(90deg);
+            color: #ef4444; /* red-500 */
+        }
+        /* Centraliza e limita o tamanho da logo */
+        .logo-container {
+            max-width: 300px;
+            margin: 0 auto;
+        }
+    </style>
+
+    <!-- Adiciona Firebase com carregamento tradicional (CDN Global) -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+
+    <!-- Script Principal do Aplicativo -->
+    <script>
+        // Variáveis globais (disponíveis via window)
+        window.allMedicamentos = []; 
+        window.IS_FIREBASE_CONNECTED = false; // DESATIVADO
+
+        const LOCAL_STORAGE_KEY = 'souzafarma_bulas_local';
+
+        // =========================================================================================
+        // DADOS MOCK: ADICIONE NOVOS MEDICAMENTOS AQUI PARA POVOAR O BANCO DE DADOS INICIALMENTE
+        // =========================================================================================
+        const mockMedicamentos = [
+            // --- 1. Paracetamol (Dose Fixa) ---
+            { 
+                nome: "Paracetamol 500mg", 
+                principioAtivo: "Acetaminofeno", 
+                dosagem: "500 mg", 
+                indicacoes: "Alívio de dores leves a moderadas e febre.", 
+                reacoesAdversas: "Raras: reações alérgicas, náuseas. Em superdosagem: danos hepáticos graves.", 
+                viaAdministracao: "Oral", 
+                categoria: "Analgésico e Antipirético",
+                posologia: "Adultos: 1 a 2 comprimidos (500mg a 1000mg) a cada 4 a 6 horas, não excedendo 4000mg em 24 horas."
+            },
+            // --- 2. Ibuprofeno 400mg (Dose Fixa) ---
+            { 
+                nome: "Ibuprofeno 400mg", 
+                principioAtivo: "Ibuprofeno", 
+                dosagem: "400 mg", 
+                indicacoes: "Alívio sintomático de dores, febre e inflamações.", 
+                reacoesAdversas: "Comuns: dispepsia (má digestão), náuseas. Raras: úlcera péptica, sangramento gastrointestinal.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-inflamatório Não Esteroidal (AINE)",
+                posologia: "Adultos e adolescentes (>40kg): 400 mg a 600 mg a cada 6 ou 8 horas. Não exceder 2400 mg em 24 horas."
+            },
+            // --- 3. Ibuprofeno Pediátrico (Cálculo por Peso em mL) ---
+            { 
+                nome: "Ibuprofeno Pediátrico", 
+                principioAtivo: "Ibuprofeno (suspensão)", 
+                dosagem: "100mg/5ml", 
+                indicacoes: "Redução de febre e alívio de dores em crianças.", 
+                reacoesAdversas: "Geralmente bem tolerado. Raros: dor de estômago, reações alérgicas.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-inflamatório Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 5, // Dose Mínima por Tomada (mg/kg/dose)
+                    doseMgPerKgPerDoseMax: 10, // Dose Máxima por Tomada (mg/kg/dose)
+                    defaultDose: 10,
+                    freqDosesPorDia: 3, // Doses por dia (8/8h)
+                    concentracaoMgPerMl: 20, // Concentração do produto (100mg / 5ml = 20 mg/mL)
+                    freqTexto: "8/8h (3 vezes ao dia)" 
+                }
+            },
+            // --- 4. Amoxicilina 875mg (Dose Fixa) ---
+            { 
+                nome: "Amoxicilina 875mg", 
+                principioAtivo: "Amoxicilina", 
+                dosagem: "875 mg", 
+                indicacoes: "Tratamento de infecções bacterianas.", 
+                reacoesAdversas: "Comuns: diarreia, rash cutâneo.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico",
+                posologia: "Adultos e crianças > 40kg: 875mg a cada 12 horas, ou conforme critério médico. Dose máxima diária: 3000 mg."
+            },
+            // --- 5. Amoxicilina + Clavulanato 875/125mg (Dose Fixa Composta) ---
+            { 
+                nome: "Amoxicilina + Clavulanato 875/125mg", 
+                principioAtivo: "Amoxicilina Tri-hidratada e Clavulanato de Potássio", 
+                dosagem: "875mg/125mg", 
+                indicacoes: "Tratamento de infecções bacterianas resistentes (sinusite, bronquite, otite média).", 
+                reacoesAdversas: "Comuns: diarreia, candidíase mucocutânea. Menos comuns: náuseas, vômitos.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico de Amplo Espectro",
+                posologia: "Adultos e adolescentes > 40kg: 1 comprimido (875mg/125mg) a cada 12 horas. Ingerir no início da refeição para reduzir desconforto gastrointestinal."
+            },
+            // --- 6. Amoxicilina + Clavulanato Pediátrico (NOVO: 400mg/57mg/5mL) ---
+            { 
+                nome: "Amoxicilina + Clavulanato Pediátrico", 
+                principioAtivo: "Amoxicilina + Clavulanato (suspensão)", 
+                dosagem: "400mg/57mg/5ml", 
+                indicacoes: "Tratamento de otite média aguda, sinusite e outras infecções pediátricas resistentes.", 
+                reacoesAdversas: "Comuns: diarreia, náuseas.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 25, // Dose Mínima Diária de Amoxicilina (mg/kg/dia)
+                    doseMgPerKgPerDiaMax: 45, // Dose Máxima Diária de Amoxicilina (mg/kg/dia)
+                    defaultDose: 35,
+                    freqDosesPorDia: 2, // Doses por dia (12/12h)
+                    concentracaoMgPerMl: 80, // Concentração da Amoxicilina (400mg / 5ml = 80 mg/mL)
+                    freqTexto: "12/12h (2 vezes ao dia)" 
+                }
+            },
+            // --- 7. Amoxicilina Pediátrica (Cálculo por Peso em mL) ---
+            { 
+                nome: "Amoxicilina Pediátrica", 
+                principioAtivo: "Amoxicilina (suspensão)", 
+                dosagem: "250mg/5ml", 
+                indicacoes: "Tratamento de infecções pediátricas (otite média, sinusite) em crianças abaixo de 40kg.", 
+                reacoesAdversas: "Comuns: diarreia, rash cutâneo.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 20, // Dose Mínima Diária (mg/kg/dia)
+                    doseMgPerKgPerDiaMax: 50, // Dose Máxima Diária (mg/kg/dia)
+                    defaultDose: 25,
+                    freqDosesPorDia: 3, // Doses por dia (para 8/8h)
+                    concentracaoMgPerMl: 50, // Concentração do produto (250mg / 5ml = 50 mg/mL)
+                    freqTexto: "8/8h (3 vezes ao dia)" 
+                }
+            },
+            // --- 8. Azitromicina 500mg (Dose Fixa) ---
+            { 
+                nome: "Azitromicina 500mg", 
+                principioAtivo: "Azitromicina", 
+                dosagem: "500 mg", 
+                indicacoes: "Tratamento de infecções do trato respiratório superior e inferior, e infecções da pele não complicadas.", 
+                reacoesAdversas: "Comuns: diarreia, náuseas, dor abdominal. Pode causar prolongamento do intervalo QT (raro, mas importante).", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico (Macrolídeo)",
+                posologia: "Adultos: 500 mg em dose única diária por 3 dias, ou 500 mg no primeiro dia e 250 mg nos 4 dias seguintes. Para DSTs, dose única de 1000 mg."
+            },
+            // --- 9. Azitromicina Pediátrica (Cálculo por Peso em mL) ---
+            { 
+                nome: "Azitromicina Pediátrica", 
+                principioAtivo: "Azitromicina (suspensão)", 
+                dosagem: "200mg/5ml", 
+                indicacoes: "Tratamento de otite média aguda, faringite, amigdalite em crianças.", 
+                reacoesAdversas: "Comuns: diarreia, vômito.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 10, // Dose Única Diária (mg/kg/dia)
+                    doseMgPerKgPerDiaMax: 10, // Dose Única Diária (mg/kg/dia)
+                    defaultDose: 10,
+                    freqDosesPorDia: 1, // Doses por dia (1 vez ao dia)
+                    concentracaoMgPerMl: 40, // Concentração do produto (200mg / 5ml = 40 mg/mL)
+                    freqTexto: "1 vez ao dia (Dose única diária)" 
+                }
+            },
+            // --- 10. Cefalexina 500mg (Dose Fixa) ---
+            { 
+                nome: "Cefalexina 500mg", 
+                principioAtivo: "Cefalexina", 
+                dosagem: "500 mg", 
+                indicacoes: "Tratamento de infecções do trato respiratório, otite média, infecções da pele e do trato urinário.", 
+                reacoesAdversas: "Comuns: Diarreia, náuseas, vômitos. Raras: Reações alérgicas graves.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico (Cefalosporina)",
+                posologia: "Adultos: A dose usual é de 250 mg a 500 mg a cada 6 horas ou 500 mg a cada 8 horas. Para infecções graves, pode ser aumentada (máximo 4 g/dia)."
+            },
+            // --- 11. Cefalexina Pediátrica (Cálculo por Peso em mL) ---
+            { 
+                nome: "Cefalexina Pediátrica", 
+                principioAtivo: "Cefalexina (suspensão)", 
+                dosagem: "250mg/5ml", 
+                indicacoes: "Infecções em crianças, como otite média e amigdalite.", 
+                reacoesAdversas: "Comuns: Diarreia, reações de hipersensibilidade.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 25, // Dose Mínima Diária (mg/kg/dia)
+                    doseMgPerKgPerDiaMax: 50, // Dose Máxima Diária (mg/kg/dia)
+                    defaultDose: 25,
+                    freqDosesPorDia: 4, // Doses por dia (6/6h)
+                    concentracaoMgPerMl: 50, // Concentração do produto (250mg / 5ml = 50 mg/mL)
+                    freqTexto: "6/6h (4 vezes ao dia)" 
+                }
+            },
+            // --- 12. Dipirona Gotas (Cálculo por Peso em mg/mL) ---
+            { 
+                nome: "Dipirona Gotas", 
+                principioAtivo: "Metamizol Sódico", 
+                dosagem: "500 mg/ml (20 gotas/mL)", 
+                indicacoes: "Alívio da dor e febre em crianças.", 
+                reacoesAdversas: "Risco de agranulocitose (raro), reações alérgicas.", 
+                viaAdministracao: "Oral", 
+                categoria: "Analgésico e Antipirético Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 10, // Dose Mínima por Tomada (mg/kg/dose)
+                    doseMgPerKgPerDoseMax: 20, // Dose Máxima por Tomada (mg/kg/dose)
+                    defaultDose: 15,
+                    freqDosesPorDia: 4, // Doses por dia (6/6h)
+                    concentracaoMgPerMl: 500, // Concentração (500 mg/mL)
+                    freqTexto: "6/6h (4 vezes ao dia)" 
+                }
+            },
+            // --- 13. Desloratadina Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Desloratadina Suspensão", 
+                principioAtivo: "Desloratadina", 
+                dosagem: "0,5mg/mL", 
+                indicacoes: "Alívio rápido dos sintomas de rinite alérgica e urticária.", 
+                reacoesAdversas: "Comuns: Dor de cabeça, boca seca, fadiga. Não causa sedação significativa.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-histamínico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 0.1, // 0.1 mg/kg/dia
+                    doseMgPerKgPerDiaMax: 0.1, // 0.1 mg/kg/dia
+                    defaultDose: 0.1,
+                    freqDosesPorDia: 1, // 1 vez ao dia
+                    concentracaoMgPerMl: 0.5, // Concentração do produto (0,5 mg/mL)
+                    freqTexto: "1 vez ao dia" 
+                }
+            },
+            // --- 14. Fexofenadina Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Fexofenadina Suspensão", 
+                principioAtivo: "Cloridrato de Fexofenadina", 
+                dosagem: "6mg/mL", 
+                indicacoes: "Alívio dos sintomas associados à rinite alérgica sazonal e urticária.", 
+                reacoesAdversas: "Comuns: Dor de cabeça, sonolência, náuseas.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-histamínico Pediátrico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 1, // 1 mg/kg por dose
+                    doseMgPerKgPerDoseMax: 1, // 1 mg/kg por dose
+                    defaultDose: 1,
+                    freqDosesPorDia: 2, // 2 vezes ao dia
+                    concentracaoMgPerMl: 6, // Concentração do produto (6 mg/mL)
+                    freqTexto: "12/12h (2 vezes ao dia)" 
+                }
+            },
+            // --- 15. Nitazoxanida Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Nitazoxanida Suspensão", 
+                principioAtivo: "Nitazoxanida", 
+                dosagem: "20mg/mL (100mg/5mL)", 
+                indicacoes: "Tratamento de gastroenterites e infecções parasitárias (Giardíase, Amebíase).", 
+                reacoesAdversas: "Comuns: Náuseas, vômitos, dor abdominal. Coloração verde ou amarelada na urina/sêmen.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antiparasitário",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 5,   // mg/kg por DOSE
+                    doseMgPerKgPerDoseMax: 10,  // mg/kg por DOSE
+                    defaultDose: 7.5,           // Valor padrão exato
+                    freqDosesPorDia: 2,         // Doses por dia (12/12h)
+                    concentracaoMgPerMl: 20,    // Concentração do produto (100mg / 5ml = 20 mg/mL)
+                    freqTexto: "12/12h (2 vezes ao dia por 3 dias)" 
+                }
+            },
+             // --- 16. Cefadroxila Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Cefadroxila Suspensão", 
+                principioAtivo: "Cefadroxila", 
+                dosagem: "250mg/5mL", 
+                indicacoes: "Tratamento de infecções do trato urinário, pele e amigdalite/faringite em crianças.", 
+                reacoesAdversas: "Comuns: Diarreia, náuseas. Raras: Candidíase vaginal.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antibiótico Pediátrico (Cefalosporina)",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 30, 
+                    doseMgPerKgPerDiaMax: 50, 
+                    defaultDose: 30, // Dose padrão
+                    freqDosesPorDia: 2, // 2 vezes ao dia
+                    concentracaoMgPerMl: 50, // 250mg / 5ml = 50 mg/mL
+                    freqTexto: "12/12h (2 vezes ao dia)" 
+                }
+            },
+             // --- 17. Cloridrato de Ambroxol Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Cloridrato de Ambroxol Suspensão", 
+                principioAtivo: "Cloridrato de Ambroxol", 
+                dosagem: "3mg/mL (15mg/5mL)", 
+                indicacoes: "Tratamento de doenças broncopulmonares agudas e crônicas com secreção viscosa.", 
+                reacoesAdversas: "Comuns: Disgeusia (alteração do paladar), náuseas.", 
+                viaAdministracao: "Oral", 
+                categoria: "Expectorante / Mucolítico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 1.2, 
+                    doseMgPerKgPerDiaMax: 1.6, 
+                    defaultDose: 1.5,
+                    freqDosesPorDia: 3, // 3 vezes ao dia
+                    concentracaoMgPerMl: 3, // 3 mg/mL
+                    freqTexto: "8/8h (3 vezes ao dia)" 
+                }
+            },
+            // --- 18. Acebrofilina Xarope (Cálculo por Peso em mL) ---
+            { 
+                nome: "Acebrofilina Xarope", 
+                principioAtivo: "Acebrofilina", 
+                dosagem: "25mg/5mL (5mg/mL)", 
+                indicacoes: "Ação broncodilatadora e mucolítica para tratamento de bronquite e asma.", 
+                reacoesAdversas: "Comuns: Náuseas, vômitos, cefaleia.", 
+                viaAdministracao: "Oral", 
+                categoria: "Broncodilatador / Mucolítico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 0.8, // mg/kg por DOSE
+                    doseMgPerKgPerDoseMax: 1.2, // mg/kg por DOSE
+                    defaultDose: 1,
+                    freqDosesPorDia: 2, // 2 vezes ao dia
+                    concentracaoMgPerMl: 5, // 5 mg/mL
+                    freqTexto: "12/12h (2 vezes ao dia)" 
+                }
+            },
+            // --- 19. Acetilcisteína Xarope (Cálculo por Peso em mL) ---
+            { 
+                nome: "Acetilcisteína Xarope", 
+                principioAtivo: "Acetilcisteína", 
+                dosagem: "20mg/mL", 
+                indicacoes: "Tratamento de doenças que produzem secreção densa e viscosa (catarro).", 
+                reacoesAdversas: "Comuns: Náuseas, vômitos, estomatite.", 
+                viaAdministracao: "Oral", 
+                categoria: "Mucolítico",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 10, 
+                    doseMgPerKgPerDiaMax: 10, 
+                    defaultDose: 10,
+                    freqDosesPorDia: 2, // 2 vezes ao dia
+                    concentracaoMgPerMl: 20, // 20 mg/mL
+                    freqTexto: "12/12h (2 vezes ao dia)" 
+                }
+            },
+            // --- 20. Dropropizina Xarope (Cálculo por Peso em mL) ---
+            { 
+                nome: "Dropropizina Xarope", 
+                principioAtivo: "Dropropizina", 
+                dosagem: "3mg/mL", 
+                indicacoes: "Tratamento sintomático da tosse não produtiva.", 
+                reacoesAdversas: "Comuns: Sonolência, náuseas, tontura.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antitussígeno",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 0.5, 
+                    doseMgPerKgPerDoseMax: 0.5, 
+                    defaultDose: 0.5,
+                    freqDosesPorDia: 4, // 4 vezes ao dia
+                    concentracaoMgPerMl: 3, // 3 mg/mL
+                    freqTexto: "6/6h (4 vezes ao dia)" 
+                }
+            },
+            // --- 21. Dexclorfenamina + Betametasona Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Dexclorfenamina + Betametasona Susp.", 
+                principioAtivo: "Dexclorfenamina e Betametasona", 
+                dosagem: "0,4mg/5mL + 0,25mg/5mL", 
+                indicacoes: "Tratamento adjuvante de doenças alérgicas graves (rinite alérgica, asma).", 
+                reacoesAdversas: "Comuns: Sonolência intensa, retenção hídrica, ganho de peso.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antialérgico (Composto) / Corticoide",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 0.035, // Usando a dose do componente ativo
+                    doseMgPerKgPerDiaMax: 0.035, 
+                    defaultDose: 0.035,
+                    freqDosesPorDia: 4, // 4 vezes ao dia
+                    concentracaoMgPerMl: 0.08, // Dexclorfenamina: 0.4mg / 5ml = 0.08 mg/mL
+                    freqTexto: "6/6h (4 vezes ao dia)" 
+                }
+            },
+             // --- 22. Dexclorfenamina Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Dexclorfenamina Suspensão", 
+                principioAtivo: "Dexclorfenamina", 
+                dosagem: "2mg/5mL (0,4mg/mL)", 
+                indicacoes: "Alívio sintomático de alergias, rinite alérgica, urticária.", 
+                reacoesAdversas: "Comuns: Sonolência, sedação, boca seca.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-histamínico (1ª Geração)",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 0.1, 
+                    doseMgPerKgPerDiaMax: 0.1, 
+                    defaultDose: 0.1,
+                    freqDosesPorDia: 4, // 4 vezes ao dia
+                    concentracaoMgPerMl: 0.4, // 2mg / 5ml = 0.4 mg/mL
+                    freqTexto: "6/6h (4 vezes ao dia)" 
+                }
+            },
+             // --- 23. Hidroxizina Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Hidroxizina Suspensão", 
+                principioAtivo: "Dicloridrato de Hidroxizina", 
+                dosagem: "2mg/mL", 
+                indicacoes: "Tratamento de prurido (coceira) associado a condições alérgicas e sedação pré-operatória.", 
+                reacoesAdversas: "Comuns: Sonolência acentuada, boca seca.", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-histamínico / Sedativo",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDiaMin: 0.7, 
+                    doseMgPerKgPerDiaMax: 2.0, 
+                    defaultDose: 1.0,
+                    freqDosesPorDia: 3, // 3 vezes ao dia
+                    concentracaoMgPerMl: 2, // 2 mg/mL
+                    freqTexto: "8/8h (3 vezes ao dia)" 
+                }
+            },
+            // --- 24. Nitazoxanida Suspensão (Cálculo por Peso em mL) ---
+            { 
+                nome: "Nitazoxanida Suspensão", 
+                principioAtivo: "Nitazoxanida", 
+                dosagem: "20mg/mL (100mg/5mL)", 
+                indicacoes: "Tratamento de gastroenterites e infecções parasitárias (Giardíase, Amebíase).", 
+                reacoesAdversas: "Comuns: Náuseas, vômitos, dor abdominal. Coloração verde ou amarelada na urina/sêmen.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antiparasitário",
+                pesoBaseCalculo: { 
+                    doseMgPerKgPerDoseMin: 5,   // mg/kg por DOSE
+                    doseMgPerKgPerDoseMax: 10,  // mg/kg por DOSE
+                    defaultDose: 7.5,           // Valor padrão exato
+                    freqDosesPorDia: 2,         // Doses por dia (12/12h)
+                    concentracaoMgPerMl: 20,    // Concentração do produto (100mg / 5ml = 20 mg/mL)
+                    freqTexto: "12/12h (2 vezes ao dia por 3 dias)" 
+                }
+            },
+            // --- 25. Soro Fisiológico (Item de informação simples) ---
+            { 
+                nome: "Soro Fisiológico 0,9%", 
+                principioAtivo: "Cloreto de Sódio", 
+                dosagem: "0,9%", 
+                indicacoes: "Limpeza de feridas, lavagem nasal, nebulização e hidratação de lentes de contato.", 
+                reacoesAdversas: "Geralmente não causa reações. Em caso de irritação, suspender o uso.", 
+                viaAdministracao: "Tópico / Inalatório", 
+                categoria: "Solução de irrigação e limpeza",
+                posologia: "Uso tópico, nasal ou oftálmico. Aplicar conforme a necessidade ou orientação médica."
+            },
+            // --- 26. Omeprazol 20mg (Dose Fixa) ---
+            { 
+                nome: "Omeprazol 20mg", 
+                principioAtivo: "Omeprazol", 
+                dosagem: "20 mg", 
+                indicacoes: "Tratamento de úlceras gástricas e refluxo.", 
+                reacoesAdversas: "Comuns: dor de cabeça, diarreia.", 
+                viaAdministracao: "Oral", 
+                categoria: "Inibidor de Bomba de Prótons (IBP)",
+                posologia: "Dose de manutenção: 20mg, uma vez ao dia, antes do café da manhã."
+            },
+            // --- 27. Losartana Potássica 50mg (Anti-hipertensivo) ---
+            { 
+                nome: "Losartana Potássica 50mg", 
+                principioAtivo: "Losartana Potássica", 
+                dosagem: "50 mg", 
+                indicacoes: "Tratamento de hipertensão arterial e proteção renal em pacientes com diabetes tipo 2.", 
+                reacoesAdversas: "Comuns: Tontura, fadiga. Raras: Angioedema (inchaço grave).", 
+                viaAdministracao: "Oral", 
+                categoria: "Anti-hipertensivo (BRA)",
+                posologia: "Dose inicial usual de 50 mg, uma vez ao dia. A dose pode ser ajustada pelo médico."
+            },
+            // --- 28. Sinvastatina 20mg (Controle de Colesterol) ---
+            { 
+                nome: "Sinvastatina 20mg", 
+                principioAtivo: "Sinvastatina", 
+                dosagem: "20 mg", 
+                indicacoes: "Redução de níveis elevados de colesterol total, LDL e triglicerídeos.", 
+                reacoesAdversas: "Comuns: Dor de cabeça, náusea. Raras: Mialgia (dor muscular), rabdomiólise (grave).", 
+                viaAdministracao: "Oral", 
+                categoria: "Estatina (Redutor de Colesterol)",
+                posologia: "Dose inicial usual de 20 mg à noite, uma vez ao dia. O ajuste da dose deve ser feito a intervalos de 4 semanas."
+            },
+            // --- 29. Metformina 500mg (Antidiabético) ---
+            { 
+                nome: "Metformina 500mg", 
+                principioAtivo: "Cloridrato de Metformina", 
+                dosagem: "500 mg", 
+                indicacoes: "Tratamento de diabetes mellitus tipo 2 (não insulino-dependente).", 
+                reacoesAdversas: "Muito comuns: Distúrbios gastrointestinais (náusea, diarreia). Raras: Acidose láctica (grave).", 
+                viaAdministracao: "Oral", 
+                categoria: "Antidiabético (Biguanida)",
+                posologia: "Dose inicial: 500 mg 2 a 3 vezes ao dia, com ou após as refeições. A dose é ajustada gradualmente."
+            },
+            // --- 30. Cloridrato de Ondansetrona 8mg (Antiemético) ---
+            { 
+                nome: "Cloridrato de Ondansetrona 8mg", 
+                principioAtivo: "Ondansetrona", 
+                dosagem: "8 mg", 
+                indicacoes: "Prevenção e tratamento de náuseas e vômitos induzidos por quimioterapia, radioterapia e pós-cirurgia.", 
+                reacoesAdversas: "Comuns: Dor de cabeça, constipação. Pode causar prolongamento do intervalo QT.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antiemético",
+                posologia: "Adultos: Para náuseas pós-cirúrgicas, 8 mg uma hora antes da anestesia, seguido por 8 mg a cada 8 horas."
+            },
+            // --- 31. Dimenidrinato (Dramin) (Para Náuseas/Vertigem) ---
+            { 
+                nome: "Dimenidrinato (Dramin)", 
+                principioAtivo: "Dimenidrinato", 
+                dosagem: "50 mg", 
+                indicacoes: "Prevenção e tratamento de náuseas, vômitos e vertigem (como cinetose).", 
+                reacoesAdversas: "Muito comuns: Sonolência, sedação, tontura.", 
+                viaAdministracao: "Oral", 
+                categoria: "Antiemético / Antivertiginoso",
+                posologia: "Adultos: 50 a 100 mg a cada 4 a 6 horas, conforme necessário. Não exceder 400 mg em 24 horas."
+            }
+        ];
+
+        // --- Funções de manipulação do localStorage para fallback ---
+        const getLocalBulas = () => {
+            try {
+                // Tenta usar localStorage
+                const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return data ? JSON.parse(data) : [];
+            } catch (e) {
+                // Se falhar (e.g., em modo de navegação privada ou restrições de segurança), retorna vazio
+                console.warn("localStorage inacessível ou falhou na leitura.", e);
+                return [];
+            }
+        };
+
+        const saveLocalBulas = (bulas) => {
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(bulas));
+                window.allMedicamentos = bulas;
+                searchMedicamentos(''); // Atualiza a lista na tela
+                showToast("Dados salvos localmente.", 'bg-yellow-500');
+            } catch (e) {
+                console.error("ERRO: Falha ao salvar no armazenamento local.", e);
+                showToast("ERRO: Falha ao salvar localmente. O armazenamento pode estar cheio ou inacessível.", 'bg-red-500');
+            }
+        };
+
+
+        // Configuração e inicialização do Firebase (usando as funções globais do CDN)
+        const initFirebase = async () => {
+             // FORÇA O MODO LOCAL IMEDIATAMENTE
+
+            window.IS_FIREBASE_CONNECTED = false;
+            
+            // Simula o carregamento (para carregar mocks/locais)
+            initializeMockData();
+            
+            // Remove o overlay de loading instantaneamente
+            document.getElementById('loading-overlay').classList.add('hidden');
+            document.getElementById('management-panel').classList.remove('hidden');
+
+            document.getElementById('status-message').innerText = `Modo Offline Ativo. Salvamento no computador/celular.`;
+        };
+
+        // Função para carregar dados do Firestore em tempo real
+        const loadMedicamentos = () => {
+            // No modo offline, esta função apenas chama initializeMockData
+            initializeMockData();
+        };
+        
+        // Função para inicializar o banco de dados com dados mock/local
+        const initializeMockData = async (forceFirestoreAdd = false) => {
+             let currentBulas = getLocalBulas();
+
+             if (!window.IS_FIREBASE_CONNECTED || !forceFirestoreAdd) {
+                 
+                 // CORREÇÃO: Filtra apenas as bulas adicionadas pelo usuário (ID local-)
+                 let userAddedBulas = currentBulas.filter(m => m.id && m.id.startsWith('local-'));
+
+                 // A lista a ser usada é a lista de mocks completa do código HTML + as bulas do usuário
+                 window.allMedicamentos = [
+                     ...mockMedicamentos.map((m, index) => ({ id: `mock-${index}`, ...m })),
+                     ...userAddedBulas
+                 ];
+
+                 // Salva a lista combinada no localStorage para que a próxima carga seja esta
+                 saveLocalBulas(window.allMedicamentos);
+
+                 if (userAddedBulas.length === 0) {
+                      showToast("Dados de demonstração carregados.", 'bg-gray-700');
+                 } else {
+                      showToast("Dados locais combinados carregados.", 'bg-gray-700');
+                 }
+             }
+             
+             // O bloco de salvamento na nuvem foi removido para evitar falhas
+
+             searchMedicamentos('');
+             document.getElementById('management-panel').classList.remove('hidden');
+        };
+
+        // --- Funções de Manipulação do App (Global) ---
+        window.searchMedicamentos = (term) => {
+            const searchTerm = term.toLowerCase().trim();
+            
+            if (!window.allMedicamentos) {
+                displayResults([]);
+                return;
+            }
+
+            const results = window.allMedicamentos.filter(med => 
+                med.nome.toLowerCase().includes(searchTerm) ||
+                med.principioAtivo.toLowerCase().includes(searchTerm) ||
+                med.indicacoes.toLowerCase().includes(searchTerm)
+            );
+
+            displayResults(results);
+        };
+
+        // Função para exibir os resultados da busca (permanece inalterada)
+        const displayResults = (results) => {
+            const resultsDiv = document.getElementById('search-results');
+            resultsDiv.innerHTML = '';
+            
+            if (results.length === 0) {
+                resultsDiv.innerHTML = `
+                    <p class="text-center text-gray-500 py-8">
+                        Nenhum medicamento encontrado.
+                        ${window.userId ? 'Tente adicionar um novo medicamento abaixo.' : ''}
+                    </p>
+                `;
+                return;
+            }
+
+            results.forEach(med => {
+                const item = document.createElement('div');
+                item.className = 'p-4 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition cursor-pointer flex justify-between items-center';
+                item.onclick = () => showBulaDetails(med);
+                
+                // Conteúdo do item
+                item.innerHTML = `
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800">${med.nome}</h3>
+                        <p class="text-sm text-gray-500 mt-1">
+                            ${med.principioAtivo} &bull; ${med.categoria}
+                        </p>
+                    </div>
+                    <span class="text-indigo-600 font-medium text-sm">Ver Bula &rarr;</span>
+                `;
+                resultsDiv.appendChild(item);
+            });
+        };
+
+        // Função para exibir a bula detalhada
+        window.showBulaDetails = (med) => {
+            const modal = document.getElementById('bula-modal');
+            const content = document.getElementById('bula-content');
+
+            // Formata o conteúdo
+            content.innerHTML = `
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">${med.nome}</h2>
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        <span class="font-semibold text-indigo-600">Princípio Ativo:</span> ${med.principioAtivo || 'N/A'}
+                    </p>
+                    <p class="text-gray-600">
+                        <span class="font-semibold text-indigo-600">Categoria:</span> ${med.categoria || 'N/A'}
+                    </p>
+                    <p class="text-gray-600">
+                        <span class="font-semibold text-indigo-600">Dosagem:</span> ${med.dosagem || 'N/A'}
+                    </p>
+                    <p class="text-gray-600">
+                        <span class="font-semibold text-indigo-600">Via de Administração:</span> ${med.viaAdministracao || 'N/A'}
+                    </p>
+                    
+                    <!-- POSOLOGIA -->
+                    <div class="border-t border-gray-200 pt-4">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-2">Posologia</h3>
+                        <!-- Usando whitespace-pre-wrap para preservar quebras de linha do textarea -->
+                        <p class="text-gray-700 whitespace-pre-wrap">${med.posologia || 'Sem informações de posologia.'}</p>
+                    </div>
+                    
+                    <!-- CALCULADORA DE DOSE POR PESO -->
+                    <div class="border-t border-gray-200 pt-4" id="dose-calculator-container">
+                        <!-- Calculadora de peso será injetada aqui se 'pesoBaseCalculo' existir -->
+                    </div>
+
+                    <div class="border-t border-gray-200 pt-4">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-2">Indicações Terapêuticas</h3>
+                        <p class="text-gray-700">${med.indicacoes || 'Sem informações.'}</p>
+                    </div>
+                    <div class="border-t border-gray-200 pt-4">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-2">Reações Adversas Comuns</h3>
+                        <p class="text-gray-700">${med.reacoesAdversas || 'Sem informações.'}</p>
+                    </div>
+                </div>
+            `;
+            
+            // --- Lógica da Calculadora de Dose por Peso ATUALIZADA ---
+            const doseCalculatorContainer = document.getElementById('dose-calculator-container');
+            if (med.pesoBaseCalculo) {
+                
+                let rangeMin = med.pesoBaseCalculo.doseMgPerKgPerDiaMin || med.pesoBaseCalculo.doseMgPerKgPerDoseMin;
+                let rangeMax = med.pesoBaseCalculo.doseMgPerKgPerDiaMax || med.pesoBaseCalculo.doseMgPerKgPerDoseMax;
+                let isDaily = !!med.pesoBaseCalculo.doseMgPerKgPerDiaMin; // É dose diária se o campo existir
+                let doseUnit = isDaily ? 'mg/kg/dia' : 'mg/kg/dose';
+
+
+                // Determina a concentração para exibir
+                const concentracaoDisplay = med.pesoBaseCalculo.concentracaoMgPerMl 
+                    ? ` (Concentração: ${med.pesoBaseCalculo.concentracaoMgPerMl} mg/mL)`
+                    : '';
+                
+                // Define um valor padrão razoável para o seletor 
+                const defaultDose = med.pesoBaseCalculo.defaultDose || rangeMin;
+                
+                // Define o passo do slider para permitir 7.5 ou 0.1, dependendo da escala
+                let stepValue = 0.5;
+                if (rangeMax < 2) { // Para doses muito pequenas como 0.1 mg/kg
+                    stepValue = 0.05;
+                } else if (rangeMax < 15) {
+                    stepValue = 0.5;
+                } else {
+                    stepValue = 5;
+                }
+                
+                doseCalculatorContainer.innerHTML = `
+                    <h3 class="text-xl font-bold text-indigo-700 mb-3 flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.657 0 3 .895 3 2s-1.343 2-3 2-3-.895-3-2 1.343-2 3-2zM9 10a3 3 0 106 0 3 3 0 10-6 0zM12 14c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"></path></svg>
+                        Calculadora de Dose (mg/kg)
+                    </h3>
+                    <div class="flex flex-col gap-4 items-end bg-indigo-50 p-4 rounded-xl shadow-inner">
+                        <!-- Input de Peso -->
+                        <div class="flex-grow w-full">
+                            <label for="peso-input" class="block text-sm font-medium text-gray-700">1. Peso da Pessoa (kg)</label>
+                            <input 
+                                type="number" 
+                                id="peso-input" 
+                                min="0.1" 
+                                step="0.1" 
+                                placeholder="Ex: 15.5"
+                                value=""
+                                class="mt-1 w-full px-3 py-2 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                                oninput="calculateDose('${med.id}')"
+                            >
+                        </div>
+
+                        <!-- Seletor de Dose -->
+                        <div class="flex-grow w-full">
+                            <label for="daily-dose-selector" class="block text-sm font-medium text-gray-700">
+                                2. Dose Escolhida: 
+                                <span id="selected-daily-dose" class="font-bold text-indigo-900 ml-1">${defaultDose} ${doseUnit}</span>
+                            </label>
+                            <input 
+                                type="range" 
+                                id="daily-dose-selector" 
+                                min="${rangeMin}" 
+                                max="${rangeMax}" 
+                                step="${stepValue}" 
+                                value="${defaultDose}"
+                                oninput="calculateDose('${med.id}')"
+                                class="w-full h-2 bg-indigo-200 rounded-lg appearance-none cursor-pointer range-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                            <div class="flex justify-between text-xs text-gray-500 mt-1 font-semibold">
+                                <span>Mín. ${rangeMin} ${doseUnit}</span>
+                                <span>Máx. ${rangeMax} ${doseUnit}</span>
+                            </div>
+                        </div>
+
+                        <!-- Resultado -->
+                        <div class="w-full p-3 bg-indigo-600 rounded-xl text-white text-center font-bold shadow-md flex justify-between items-center">
+                            <span>Dose por Tomada:</span> 
+                            <span id="calculated-dose" class="font-bold text-2xl ml-3">---</span>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2">
+                        Referência: Dose administrada ${med.pesoBaseCalculo.freqTexto}.
+                        <span class="font-semibold text-red-700">${concentracaoDisplay}</span>
+                    </p>
+                `;
+                // Garante que o cálculo inicial seja executado se houver peso preenchido
+                setTimeout(() => calculateDose(med.id), 0); 
+            } else {
+                doseCalculatorContainer.innerHTML = '';
+            }
+            // --- Fim da Lógica da Calculadora ATUALIZADA ---
+
+            // Adiciona botões de edição/exclusão (permanece inalterada)
+            if (med.id && window.userId) {
+                document.getElementById('bula-actions').innerHTML = `
+                    <button id="edit-bula-btn" class="px-4 py-2 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition">
+                        Editar
+                    </button>
+                    <button id="delete-bula-btn" class="px-4 py-2 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 transition ml-3">
+                        Excluir
+                    </button>
+                `;
+                document.getElementById('edit-bula-btn').onclick = () => {
+                    closeModal('bula-modal');
+                    openFormModal(med);
+                };
+                document.getElementById('delete-bula-btn').onclick = () => deleteMedicamento(med.id, med.nome);
+
+            } else {
+                document.getElementById('bula-actions').innerHTML = ''; 
+            }
+
+            modal.classList.remove('hidden');
+        };
+        
+        // --- FUNÇÃO DE CÁLCULO UNIFICADA (AGORA SUPORTA MG/KG/DIA E MG/KG/DOSE) ---
+        window.calculateDose = (medId) => {
+            const med = window.allMedicamentos.find(m => m.id === medId);
+            const weightInput = document.getElementById('peso-input');
+            const dailyDoseInput = document.getElementById('daily-dose-selector');
+            const calculatedDoseSpan = document.getElementById('calculated-dose');
+            
+            if (!med || !med.pesoBaseCalculo || !dailyDoseInput) {
+                calculatedDoseSpan.innerText = 'Erro';
+                return;
+            }
+
+            const peso = parseFloat(weightInput.value);
+            
+            // Determina se estamos lidando com dose DIÁRIA ou por DOSE
+            const isDailyDose = !!med.pesoBaseCalculo.doseMgPerKgPerDiaMin;
+            const dosePerKgSelected = parseFloat(dailyDoseInput.value);
+            const freqDosesPorDia = med.pesoBaseCalculo.freqDosesPorDia || 1; 
+            const concentracaoMgPerMl = med.pesoBaseCalculo.concentracaoMgPerMl;
+            
+            const doseUnitDisplay = isDailyDose ? 'mg/kg/dia' : 'mg/kg/dose';
+            document.getElementById('selected-daily-dose').innerText = `${dosePerKgSelected} ${doseUnitDisplay}`;
+
+
+            if (isNaN(peso) || peso <= 0) {
+                calculatedDoseSpan.innerText = '---';
+                return;
+            }
+
+            let doseCalculadaMg;
+            
+            if (isDailyDose) {
+                // Cenário 1: Dose diária total (ex: Amoxicilina Pediátrica)
+                const doseTotalDiariaMg = peso * dosePerKgSelected; 
+                doseCalculadaMg = doseTotalDiariaMg / freqDosesPorDia; 
+            } else {
+                // Cenário 2: Dose por tomada (ex: Dipirona Gotas)
+                doseCalculadaMg = peso * dosePerKgSelected; 
+            }
+            
+            let finalDose = doseCalculadaMg;
+            let finalUnit = 'mg';
+
+            // Converter para ML se a concentração estiver disponível
+            if (concentracaoMgPerMl && concentracaoMgPerMl > 0) {
+                finalDose = doseCalculadaMg / concentracaoMgPerMl;
+                finalUnit = 'mL';
+            }
+            
+            // Exibindo o resultado formatado
+            calculatedDoseSpan.innerText = `${finalDose.toFixed(2)} ${finalUnit}`; // Aumentei para 2 casas decimais para mL
+        };
+        // --- FIM DA FUNÇÃO DE CÁLCULO UNIFICADA ---
+
+        // Abre o modal de formulário para novo ou edição (permanece inalterada)
+        window.openFormModal = (med = null) => {
+            const modal = document.getElementById('form-modal');
+            const form = document.getElementById('medicamento-form');
+            form.reset(); 
+            document.getElementById('medicamento-id').value = '';
+            
+            if (med) {
+                document.getElementById('form-title').innerText = `Editar Bula: ${med.nome}`;
+                document.getElementById('medicamento-id').value = med.id;
+                document.getElementById('nome').value = med.nome || '';
+                document.getElementById('principioAtivo').value = med.principioAtivo || '';
+                document.getElementById('categoria').value = med.categoria || '';
+                document.getElementById('dosagem').value = med.dosagem || '';
+                document.getElementById('viaAdministracao').value = med.viaAdministracao || '';
+                document.getElementById('posologia').value = med.posologia || '';
+                document.getElementById('indicacoes').value = med.indicacoes || '';
+                document.getElementById('reacoesAdversas').value = med.reacoesAdversas || '';
+                document.getElementById('save-btn').innerText = 'Salvar Alterações';
+            } else {
+                document.getElementById('form-title').innerText = 'Adicionar Nova Bula';
+                document.getElementById('save-btn').innerText = 'Adicionar Medicamento';
+            }
+            modal.classList.remove('hidden');
+        };
+
+        // Salva ou Atualiza um medicamento (CORRIGIDO com fallback para localStorage)
+        window.saveMedicamento = async (event) => {
+            event.preventDefault();
+            
+            const id = document.getElementById('medicamento-id').value;
+            const nome = document.getElementById('nome').value.trim();
+            
+            if (!nome) {
+                 showToast("O nome do medicamento é obrigatório.", 'bg-red-500');
+                 return;
+            }
+
+            const data = {
+                nome: nome,
+                principioAtivo: document.getElementById('principioAtivo').value.trim(),
+                categoria: document.getElementById('categoria').value.trim(),
+                dosagem: document.getElementById('dosagem').value.trim(),
+                viaAdministracao: document.getElementById('viaAdministracao').value.trim(),
+                posologia: document.getElementById('posologia').value.trim(), 
+                indicacoes: document.getElementById('indicacoes').value.trim(),
+                reacoesAdversas: document.getElementById('reacoesAdversas').value.trim(),
+                // Nota: pesoBaseCalculo não é editável pelo formulário.
+            };
+
+            // Tenta salvar no Firebase primeiro (Ignorado, pois o salvamento na nuvem está bloqueado localmente)
+            if (window.IS_FIREBASE_CONNECTED) {
+                // AQUI O CÓDIGO NORMALMENTE SALVARIA NA NUVEM, mas estamos forçando o local
+                showToast("ERRO: A nuvem não está conectada. Salvando localmente.", 'bg-red-500');
+            } 
+            
+            // Fallback para LocalStorage
+            let bulas = getLocalBulas();
+            
+            // Garante que o usuário só edite o que ele adicionou ou que ele crie um novo.
+            
+            let newId = id;
+
+            if (id && id.startsWith('local-')) {
+                // Modo Edição Local
+                bulas = bulas.map(m => (m.id === id ? { ...data, id: id } : m));
+                showToast(`Bula de "${data.nome}" atualizada (Local).`, 'bg-yellow-500');
+            } else if (id && id.startsWith('mock-')) {
+                // Não permite editar mocks diretamente
+                showToast(`Erro: Não é possível editar bulas de demonstração. Salve como nova.`, 'bg-red-500');
+                return;
+            } else {
+                // Modo Novo Local
+                newId = 'local-' + Date.now();
+                bulas.push({ ...data, id: newId });
+                showToast(`Bula de "${data.nome}" adicionada (Local).`, 'bg-yellow-500');
+            }
+            
+            saveLocalBulas(bulas);
+            closeModal('form-modal');
+        };
+
+        // Exclui um medicamento (permanece inalterada)
+        window.deleteMedicamento = async (id, nome) => {
+            
+            if (id && (id.startsWith('local-') || id.startsWith('mock-'))) {
+                 // Excluir do LocalStorage
+                 let bulas = getLocalBulas().filter(m => m.id !== id);
+                 saveLocalBulas(bulas);
+                 showToast(`Bula de "${nome}" excluída (Local).`, 'bg-yellow-500');
+                 closeModal('bula-modal');
+                 return;
+            }
+            
+            if (!window.medicamentosRef) {
+                 showToast("Erro: Coleção de dados não inicializada para exclusão na nuvem.", 'bg-red-500');
+                 return;
+            }
+            
+            console.warn(`Tentativa de exclusão de "${nome}" (ID: ${id}).`);
+            const isConfirmed = true; 
+
+            if (isConfirmed) {
+                try {
+                    await window.db.collection(window.medicamentosRef.id).doc(id).delete();
+                    closeModal('bula-modal');
+                    showToast(`Bula de "${nome}" excluída (Nuvem).`, 'bg-yellow-500');
+                } catch (error) {
+                    console.error("Erro ao excluir medicamento:", error);
+                    showToast(`Falha ao excluir: ${error.message}`, 'bg-red-500');
+                }
+            }
+        };
+
+        // Função utilitária para fechar modais (permanece inalterada)
+        window.closeModal = (id) => {
+            document.getElementById(id).classList.add('hidden');
+        };
+
+        // Função para mostrar notificações Toast (permanece inalterada)
+        window.showToast = (message, bgColor) => {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.className = `fixed bottom-5 left-1/2 -translate-x-1/2 px-6 py-3 text-white rounded-full shadow-lg transition-opacity duration-300 ${bgColor} z-50`;
+            toast.classList.remove('opacity-0');
+            toast.classList.add('opacity-100');
+            
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+            }, 3000);
+        };
+
+        // Inicia o Firebase assim que a página carregar
+        document.addEventListener('DOMContentLoaded', initFirebase);
+    </script>
+</head>
+<body class="min-h-screen">
+
+    <!-- Toast Notification (Mensagens de status) -->
+    <div id="toast" class="opacity-0 fixed bottom-5 left-1/2 -translate-x-1/2 px-6 py-3 text-white rounded-full shadow-lg transition-opacity duration-300 bg-gray-700 z-50">
+        Mensagem de Status
+    </div>
+
+    <!-- Overlay de Carregamento Inicial -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white bg-opacity-90 z-40 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div>
+        <p class="mt-4 text-indigo-600 font-medium">Conectando ao banco de dados...</p>
+    </div>
+
+    <!-- Container Principal -->
+    <div class="max-w-4xl mx-auto p-4 md:p-8">
+        
+        <!-- Header e Título - ATUALIZADO COM A LOGOMARCA -->
+        <header class="mb-8 text-center">
+            <div class="logo-container">
+                <!-- Imagem da Logomarca (usando o ID de arquivo carregado) -->
+                <img 
+                    src="í98) 98628-7296 (3).png" 
+                    alt="Logo Souza Farma - Farmácia do Trabalhador" 
+                    class="w-full h-auto rounded-lg shadow-md"
+                >
+            </div>
+            <h1 class="text-3xl font-extrabold text-indigo-700 mt-4 mb-2">Bulas Digitais</h1>
+            <p class="text-gray-600">Encontre informações rápidas e essenciais sobre medicamentos. Dados persistentes via LocalStorage.</p>
+            <!-- Exibição do ID do Usuário (para fins de teste/colaboração) -->
+            <div id="user-id-display" class="mt-3 p-2 bg-indigo-100 text-indigo-800 text-xs rounded-lg hidden">
+                <span id="user-info"></span>
+                <p id="status-message" class="text-xs mt-1 font-medium"></p>
+            </div>
+        </header>
+
+        <!-- Barra de Busca (restante do código permanece o mesmo) -->
+        <div class="mb-8 bg-white p-6 rounded-2xl shadow-xl border border-indigo-100">
+            <label for="search-input" class="block text-lg font-semibold text-gray-700 mb-2">
+                Pesquisar Medicamento
+            </label>
+            <input 
+                type="text" 
+                id="search-input" 
+                placeholder="Ex: Paracetamol, Amoxicilina, Analgésico..."
+                oninput="searchMedicamentos(this.value)"
+                class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition shadow-inner text-gray-800"
+            >
+        </div>
+
+        <!-- Painel de Gerenciamento (CRUD) -->
+        <div id="management-panel" class="mb-8 hidden">
+            <button 
+                onclick="openFormModal()"
+                class="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md hover:bg-indigo-700 transition transform hover:scale-[1.01]"
+            >
+                + Adicionar Nova Bula
+            </button>
+        </div>
+
+
+        <!-- Resultados da Busca -->
+        <div id="search-results" class="space-y-4">
+            <!-- Resultados serão injetados aqui pelo JavaScript -->
+            <p class="text-center text-gray-500 py-8">Comece a digitar para pesquisar ou aguarde o carregamento dos dados.</p>
+        </div>
+    </div>
+
+
+    <!-- Modal de Visualização da Bula Detalhada -->
+    <div id="bula-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4" onclick="if(event.target.id === 'bula-modal') closeModal('bula-modal')">
+        <div class="bg-white rounded-2xl p-6 md:p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative transform transition-all scale-100">
+            <!-- Botão de Fechar -->
+            <button 
+                onclick="closeModal('bula-modal')"
+                class="close-button absolute top-4 right-4 text-gray-400 hover:text-red-500 text-3xl font-light p-1"
+                aria-label="Fechar"
+            >&times;</button>
+            
+            <div id="bula-content" class="pb-6">
+                <!-- Conteúdo da bula será injetado aqui -->
+            </div>
+            
+            <!-- Ações (Editar/Excluir) -->
+            <div id="bula-actions" class="flex justify-end pt-4 border-t border-gray-200">
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal de Formulário (Adicionar/Editar) - SEM FECHAMENTO AO CLICAR FORA -->
+    <div id="form-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl p-6 md:p-8 w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+            <button 
+                onclick="closeModal('form-modal')"
+                class="close-button absolute top-4 right-4 text-gray-400 hover:text-red-500 text-3xl font-light p-1"
+                aria-label="Fechar"
+            >&times;</button>
+
+            <h2 id="form-title" class="text-2xl font-bold text-indigo-700 mb-6 border-b pb-2">Adicionar Nova Bula</h2>
+            
+            <form id="medicamento-form" onsubmit="saveMedicamento(event)">
+                <input type="hidden" id="medicamento-id">
+                
+                <div class="mb-4">
+                    <label for="nome" class="block text-sm font-medium text-gray-700">Nome Comercial / Marca <span class="text-red-500">*</span></label>
+                    <input type="text" id="nome" required class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="mb-4">
+                    <label for="principioAtivo" class="block text-sm font-medium text-gray-700">Princípio Ativo</label>
+                    <input type="text" id="principioAtivo" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="mb-4">
+                    <label for="categoria" class="block text-sm font-medium text-gray-700">Categoria (Ex: Analgésico, Antibiótico)</label>
+                    <input type="text" id="categoria" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="dosagem" class="block text-sm font-medium text-gray-700">Dosagem</label>
+                        <input type="text" id="dosagem" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label for="viaAdministracao" class="block text-sm font-medium text-gray-700">Via de Administração</label>
+                        <input type="text" id="viaAdministracao" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                </div>
+                
+                <!-- NOVO CAMPO: POSOLOGIA -->
+                <div class="mb-4">
+                    <label for="posologia" class="block text-sm font-medium text-gray-700">Posologia (Informações gerais e de dosagem)</label>
+                    <textarea id="posologia" rows="3" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="indicacoes" class="block text-sm font-medium text-gray-700">Indicações Terapêuticas</label>
+                    <textarea id="indicacoes" rows="3" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                </div>
+                <div class="mb-6">
+                    <label for="reacoesAdversas" class="block text-sm font-medium text-gray-700">Reações Adversas Comuns</label>
+                    <textarea id="reacoesAdversas" rows="3" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                </div>
+                
+                <button type="submit" id="save-btn" class="w-full px-4 py-3 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition">
+                    Adicionar Medicamento
+                </button>
+            </form>
+        </div>
+    </div>
+
+</body>
+</html>
